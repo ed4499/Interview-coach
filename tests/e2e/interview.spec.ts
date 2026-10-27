@@ -247,7 +247,8 @@ test("warns up front when the browser can't transcribe speech (e.g. Opera) and f
   await page.getByText("Speak my answers").click();
   await page.getByText(/I consent to TreTechPro.ai recording/).click();
   await page.getByRole("button", { name: "Start interview" }).click();
-  await expect(page.getByText(/can't turn your speech into text/)).toBeVisible({ timeout: 10_000 });
+  // (Headless Chromium reports itself as Chrome, so this shows the "isn't working right now" variant.)
+  await expect(page.getByText(/can't turn your speech into text|isn't working right now/)).toBeVisible({ timeout: 10_000 });
   await expect(page.getByText(/Google Chrome/).first()).toBeVisible();
   await shot(page, "13-unsupported-browser");
   await page.getByRole("button", { name: "Join interview" }).click();

@@ -100,6 +100,8 @@ export default function AnswerInput({
   const hf = useRef(new HandsFreeTimer(DEFAULT_HANDS_FREE));
   const manuallyStopped = useRef(false);
   const submitting = useRef(false);
+  const mutedRef = useRef(micMuted);
+  mutedRef.current = micMuted;
 
   /** Updates the parent and our ref immediately, so an auto-submit right after sees the latest text. */
   function emit(v: AnswerValue) {
@@ -186,6 +188,11 @@ export default function AnswerInput({
     setHfPhase({ phase: "waiting" });
     try {
       const media = await openMic(micDeviceId);
+      // The mic may have been switched off (or the interviewer started talking) while it opened.
+      if (mutedRef.current) {
+        media.getTracks().forEach((t) => t.stop());
+        return;
+      }
       stream.current = media;
       const rec = new MediaRecorder(media);
       chunks.current = [];
@@ -262,14 +269,15 @@ export default function AnswerInput({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [voice, handsFree, autoStart, recordingBlocked, disabled, micMuted, recording]);
 
-  // Mic switched off: stop listening without submitting.
+  // Mic switched off (or interviewer talking): stop listening without submitting. Also runs when
+  // recording starts, covering a mute that happened while the microphone was still opening.
   useEffect(() => {
     if (micMuted && recording) {
       hf.current.pause();
       void stopRecording();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [micMuted]);
+  }, [micMuted, recording]);
 
   // While recording: level meter, "we hear you but get no words" check, hands-free timing.
   useEffect(() => {

@@ -80,6 +80,11 @@ controls.
   device (`SpeechRecognition.start(track)`, Chrome/Edge 135+; older browsers use the default mic).
   Listening pauses while the interviewer speaks. Speech-to-text errors are explained on screen,
   including "we can hear you but no words are transcribed".
+* **Browser support for spoken answers:** speech-to-text uses the browser's service, which works in
+  Google Chrome and Microsoft Edge. The setup page warns in other browsers, and the lobby runs a quick
+  check. If transcription isn't available (e.g. Opera, Brave, Firefox), the candidate is told to switch
+  browsers or type; hands-free starts off and recordings are still saved. *Planned:* server-side
+  speech-to-text so voice answers work in every browser.
 * **Default voice:** if no voice is chosen, an American voice from the account's library is selected
   automatically (female first, to match the default avatar).
 * **Fallback:** without a key, or if the video can't connect, the interviewer continues with the

@@ -9,7 +9,7 @@ import AnswerInput, { type AnswerValue, emptyAnswer } from "./AnswerInput";
 import { AnamDriver, type AvatarDriver, type AvatarState, BrowserVoiceDriver, TestDriver } from "./avatar/drivers";
 import MicSetup from "./MicSetup";
 import { loadMicId } from "./mic";
-import { type SpeechSupport, browserName, probeSpeechRecognition } from "./speechSupport";
+import { type SpeechSupport, browserName, isRecommendedBrowser, probeSpeechRecognition } from "./speechSupport";
 
 interface Props {
   initial: InterviewState;
@@ -77,6 +77,17 @@ function SelfView({ stream, compact }: { stream: MediaStream | null; compact?: b
 function SpeechCheck({ support }: { support: SpeechSupport }) {
   if (support === "checking") return <p className="hint">Checking speech-to-text…</p>;
   if (support === "ok") return <p className="hint status-good">✓ Speech-to-text works in this browser.</p>;
+  if (isRecommendedBrowser()) {
+    return (
+      <div className="alert error small" role="alert" style={{ marginTop: 8 }}>
+        <strong>Speech-to-text isn&apos;t working right now.</strong>{" "}
+        {support === "blocked"
+          ? "Allow the microphone for this site (lock icon in the address bar) and reload."
+          : `${browserName()} couldn't reach its speech service. Check your internet connection and reload.`}{" "}
+        You can also join now and type your answers.
+      </div>
+    );
+  }
   return (
     <div className="alert error small" role="alert" style={{ marginTop: 8 }}>
       <strong>
@@ -351,7 +362,7 @@ export default function InterviewRunner({ initial, levelLabel, categoryLabels, a
             <li>
               {avatar.interviewerName} will ask each question out loud{videoMode ? " on video" : ""}; the question also appears as a caption.
             </li>
-            <li>{voice
+            <li>{voice && speechSupport !== "unavailable" && speechSupport !== "blocked"
                 ? "Speak your answer after the interviewer finishes: listening starts automatically and your answer is submitted when you pause. Check your microphone above first."
                 : "Type each answer, then submit it."}</li>
             <li>Use headphones if you can, and make sure your sound is on.</li>
