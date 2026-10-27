@@ -1,0 +1,25 @@
+# Render Blueprint: New > Blueprint > pick this repo. Render prompts for the two secrets.
+services:
+  - type: web
+    name: tretechpro-interview-coach
+    runtime: node
+    plan: starter # a persistent disk requires a paid instance
+    region: oregon
+    buildCommand: npm ci --include=dev && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: SITE_PASSWORD
+        sync: false
+      - key: DATABASE_PATH
+        value: /var/data/interview-coach.sqlite
+      - key: AUDIO_STORAGE_DIR
+        value: /var/data/audio
+    disk:
+      name: interview-data
+      mountPath: /var/data
+      sizeGB: 1

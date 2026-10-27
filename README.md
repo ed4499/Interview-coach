@@ -31,6 +31,19 @@ keyword heuristic so QA can walk through the whole product. Every page shows a y
 | `npm run test:e2e` | Browser end-to-end tests (Playwright, test mode). Set `PLAYWRIGHT_CHROMIUM_PATH` to use a preinstalled Chromium |
 | `npm run typecheck` | TypeScript check |
 
+## Deploy a test link on Render
+
+`render.yaml` is a Render Blueprint with the build/start commands, Node 22, a health check
+(`/api/health`) and a 1 GB persistent disk at `/var/data` for the database and recordings.
+
+1. Render dashboard → **New → Blueprint** → connect this GitHub repo → it reads `render.yaml`.
+2. Enter the two secrets when prompted: `ANTHROPIC_API_KEY` and `SITE_PASSWORD`
+   (visitors sign in with any username and that password).
+3. **Apply.** The first build takes a few minutes; the link is `https://<service-name>.onrender.com`.
+
+Every push to `main` redeploys automatically. To demo without an API key, add
+`INTERVIEW_AI_MODE=test` in the service's Environment tab (scores are then fake and labelled).
+
 ## How it works
 
 ```
