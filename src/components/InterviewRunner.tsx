@@ -9,6 +9,7 @@ import AnswerInput, { type AnswerValue, emptyAnswer } from "./AnswerInput";
 import { AnamDriver, type AvatarDriver, type AvatarState, BrowserVoiceDriver, TestDriver } from "./avatar/drivers";
 import MicSetup from "./MicSetup";
 import { loadMicId } from "./mic";
+import { type SpeechSupport, browserName, probeSpeechRecognition } from "./speechSupport";
 
 interface Props {
   initial: InterviewState;
@@ -73,6 +74,20 @@ function SelfView({ stream, compact }: { stream: MediaStream | null; compact?: b
   );
 }
 
+function SpeechCheck({ support }: { support: SpeechSupport }) {
+  if (support === "checking") return <p className="hint">Checking speech-to-text…</p>;
+  if (support === "ok") return <p className="hint status-good">✓ Speech-to-text works in this browser.</p>;
+  return (
+    <div className="alert error small" role="alert" style={{ marginTop: 8 }}>
+      <strong>
+        {support === "blocked" ? "Speech-to-text is blocked in this browser." : `${browserName()} can't turn your speech into text.`}
+      </strong>{" "}
+      Spoken answers currently work in <strong>Google Chrome</strong> and <strong>Microsoft Edge</strong>. To answer by voice, open this site in one of
+      those browsers and start the interview there. Or join now and type your answers; your voice recordings are still saved.
+    </div>
+  );
+}
+
 export default function InterviewRunner({ initial, levelLabel, categoryLabels, avatar }: Props) {
   const router = useRouter();
   const [state, setState] = useState(initial);
@@ -95,6 +110,23 @@ export default function InterviewRunner({ initial, levelLabel, categoryLabels, a
   const [micOn, setMicOn] = useState(true);
   const [micPanel, setMicPanel] = useState(false);
   useEffect(() => setMicId(loadMicId()), []);
+  const [speechSupport, setSpeechSupport] = useState<SpeechSupport>("checking");
+  const [micReady, setMicReady] = useState(false);
+  // Check before the interview whether this browser can turn speech into text
+  // (after mic permission is granted, so a pending prompt isn't mistaken for "blocked").
+  useEffect(() => {
+    if (state.response_mode !== "voice" || !micReady || speechSupport !== "checking") return;
+    let cancelled = false;
+    probeSpeechRecognition().then((r) => {
+      if (cancelled) return;
+      setSpeechSupport(r);
+      if (r !== "ok") setHandsFree(false); // nothing to auto-submit without a transcript
+    });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.response_mode, micReady]);
   const camera = useCamera();
   const left = useCountdown(state.deadline_at);
   const onBusyChange = useCallback((b: boolean) => setInputBusy(b), []);
@@ -309,7 +341,8 @@ export default function InterviewRunner({ initial, levelLabel, categoryLabels, a
               {camera.error && <p className="alert small">{camera.error}</p>}
               {voice && (
                 <div style={{ marginTop: 14 }}>
-                  <MicSetup deviceId={micId} onDeviceChange={setMicId} />
+                  <MicSetup deviceId={micId} onDeviceChange={setMicId} onReady={() => setMicReady(true)} />
+                  <SpeechCheck support={speechSupport} />
                 </div>
               )}
             </div>

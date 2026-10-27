@@ -132,8 +132,9 @@ test("hands-free voice interview: listens automatically, transcribes, and submit
       onend: (() => void) | null = null;
       onerror: ((e: unknown) => void) | null = null;
       private timer: ReturnType<typeof setTimeout> | null = null;
-      start() {
-        if ((window as unknown as { __spoken?: boolean }).__spoken) return;
+      start(track?: unknown) {
+        // Only the answer recorder passes a mic track; the lobby's support check doesn't.
+        if (!track || (window as unknown as { __spoken?: boolean }).__spoken) return;
         this.timer = setTimeout(() => {
           (window as unknown as { __spoken?: boolean }).__spoken = true;
           const text = "When I worked the college help desk, my role was to fix a printer outage. I checked the DHCP leases and configured reservations, and tickets dropped.";
@@ -161,6 +162,7 @@ test("hands-free voice interview: listens automatically, transcribes, and submit
   // Lobby: pick a microphone and see its level (Chromium's fake device plays a tone).
   await expect(page.locator("#mic-select option").first()).toBeAttached();
   await expect(page.getByText("✓ We can hear you.")).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByText("✓ Speech-to-text works in this browser.")).toBeVisible({ timeout: 10_000 });
   await shot(page, "09a-mic-setup");
   await page.getByRole("button", { name: "Join interview" }).click();
 
@@ -213,4 +215,46 @@ test("falls back to a voice-only interviewer when the video avatar can't connect
   await page.getByRole("button", { name: "Submit answer" }).click();
   await expect(page.getByText(/Answer saved/)).toBeVisible();
   await expect(page.getByText("2 of 5")).toBeVisible();
+});
+
+test("warns up front when the browser can't transcribe speech (e.g. Opera) and falls back to typing", async ({ page }) => {
+  // Simulate a browser that exposes speech recognition but can't reach a transcription service.
+  await page.addInitScript(() => {
+    class BrokenRecognition {
+      lang = "en-US";
+      continuous = false;
+      interimResults = false;
+      onresult: unknown = null;
+      onend: (() => void) | null = null;
+      onerror: ((e: { error: string }) => void) | null = null;
+      start() {
+        setTimeout(() => {
+          this.onerror?.({ error: "network" });
+          this.onend?.();
+        }, 100);
+      }
+      stop() {}
+      abort() {}
+    }
+    for (const name of ["SpeechRecognition", "webkitSpeechRecognition"]) {
+      Object.defineProperty(window, name, { value: BrokenRecognition, configurable: true, writable: true });
+    }
+  });
+  await page.goto("/interview/new");
+  await page.selectOption("#role", "Help Desk");
+  await page.getByText("Mid-Level").click();
+  await page.getByText("Behavioral STAR (5 questions)").click();
+  await page.getByText("Speak my answers").click();
+  await page.getByText(/I consent to TreTechPro.ai recording/).click();
+  await page.getByRole("button", { name: "Start interview" }).click();
+  await expect(page.getByText(/can't turn your speech into text/)).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByText(/Google Chrome/).first()).toBeVisible();
+  await shot(page, "13-unsupported-browser");
+  await page.getByRole("button", { name: "Join interview" }).click();
+  await expect(page.getByText("1 of 5")).toBeVisible();
+  // Hands-free starts switched off; the candidate can type and submit.
+  await expect(page.getByRole("checkbox", { name: /Hands-free/ })).not.toBeChecked();
+  await page.locator("#answer").fill(STAR_ANSWER);
+  await page.getByRole("button", { name: "Submit answer" }).click();
+  await expect(page.getByText(/Answer saved/)).toBeVisible();
 });

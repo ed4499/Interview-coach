@@ -4,7 +4,16 @@ import { useEffect, useRef, useState } from "react";
 import { SPEECH_LEVEL, levelMeter, listMics, openMic, saveMicId } from "./mic";
 
 /** Microphone picker with a live level meter so candidates can confirm they're being heard. */
-export default function MicSetup({ deviceId, onDeviceChange }: { deviceId: string | null; onDeviceChange: (id: string | null) => void }) {
+export default function MicSetup({
+  deviceId,
+  onDeviceChange,
+  onReady,
+}: {
+  deviceId: string | null;
+  onDeviceChange: (id: string | null) => void;
+  /** Called once microphone permission is granted and the mic is open. */
+  onReady?: () => void;
+}) {
   const [mics, setMics] = useState<MediaDeviceInfo[]>([]);
   const [level, setLevel] = useState(0);
   const [heard, setHeard] = useState(false);
@@ -22,6 +31,7 @@ export default function MicSetup({ deviceId, onDeviceChange }: { deviceId: strin
         stream = await openMic(deviceId);
         if (cancelled) return stream.getTracks().forEach((t) => t.stop());
         setError(null);
+        onReady?.();
         // Device labels are only available after permission is granted.
         const list = await listMics();
         if (cancelled) return;

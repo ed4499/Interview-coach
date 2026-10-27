@@ -1,7 +1,8 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { browserName, isRecommendedBrowser } from "./speechSupport";
 
 interface Props {
   roles: string[];
@@ -21,6 +22,8 @@ export default function SetupForm({ roles, levels, modes }: Props) {
   const [jd, setJd] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [browserWarning, setBrowserWarning] = useState<string | null>(null);
+  useEffect(() => setBrowserWarning(isRecommendedBrowser() ? null : browserName()), []);
 
   const ready = role && level && (responseMode === "text" || consent);
 
@@ -101,6 +104,12 @@ export default function SetupForm({ roles, levels, modes }: Props) {
             <p className="hint">Recorded and transcribed; you can edit the transcript before submitting.</p>
           </label>
         </div>
+        {responseMode === "voice" && browserWarning && (
+          <p className="alert small" style={{ marginTop: 12 }}>
+            Spoken answers work best in <strong>Google Chrome</strong> or <strong>Microsoft Edge</strong>. You&apos;re using {browserWarning}, which may not be
+            able to transcribe speech; if so, you can still type your answers.
+          </p>
+        )}
         {responseMode === "voice" && (
           <label className="check" style={{ marginTop: 12 }}>
             <input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} />
