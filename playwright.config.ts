@@ -16,11 +16,26 @@ export default defineConfig({
     },
     permissions: ["microphone"],
   },
-  webServer: {
-    // Offline heuristic evaluator: no API key required, results are clearly labelled.
-    command: `npx next start -p ${PORT}`,
-    port: PORT,
-    reuseExistingServer: false,
-    env: { INTERVIEW_AI_MODE: "test", DATABASE_PATH: "var/e2e/e2e.sqlite", AUDIO_STORAGE_DIR: "var/e2e/audio" },
-  },
+  webServer: [
+    {
+      // Offline heuristic evaluator: no API key required, results are clearly labelled.
+      command: `npx next start -p ${PORT}`,
+      port: PORT,
+      reuseExistingServer: false,
+      env: { INTERVIEW_AI_MODE: "test", DATABASE_PATH: "var/e2e/e2e.sqlite", AUDIO_STORAGE_DIR: "var/e2e/audio" },
+    },
+    {
+      // Video interviewer with an invalid Anam key: verifies the voice-only fallback.
+      command: `npx next start -p ${PORT + 1}`,
+      port: PORT + 1,
+      reuseExistingServer: false,
+      env: {
+        INTERVIEW_AI_MODE: "test",
+        AVATAR_PROVIDER: "anam",
+        ANAM_API_KEY: "invalid-test-key",
+        DATABASE_PATH: "var/e2e/e2e-anam.sqlite",
+        AUDIO_STORAGE_DIR: "var/e2e/audio-anam",
+      },
+    },
+  ],
 });

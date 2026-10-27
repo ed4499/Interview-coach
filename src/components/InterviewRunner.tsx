@@ -1,15 +1,21 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
-import type { InterviewState } from "@/lib/interview";
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { AvatarClientConfig } from "@/lib/avatar";
+import type { InterviewState, InterviewStep } from "@/lib/interview";
+import { closingLine, followupLine, introLine, questionLine } from "@/lib/interviewerScript";
 import AnswerInput, { type AnswerValue, emptyAnswer } from "./AnswerInput";
+import { AnamDriver, type AvatarDriver, type AvatarState, BrowserVoiceDriver, TestDriver } from "./avatar/drivers";
 
 interface Props {
   initial: InterviewState;
   levelLabel: string;
   categoryLabels: Record<string, string>;
+  avatar: AvatarClientConfig;
 }
+
+const VIDEO_ID = "interviewer-video";
 
 function useCountdown(deadline: string | null) {
   const [left, setLeft] = useState<number | null>(null);
@@ -23,7 +29,49 @@ function useCountdown(deadline: string | null) {
   return left;
 }
 
-export default function InterviewRunner({ initial, levelLabel, categoryLabels }: Props) {
+function stepKey(step: InterviewStep): string {
+  return step.type === "question" || step.type === "followup" ? `${step.type}:${step.question_id}` : step.type;
+}
+
+/** Camera self-view: shown only to the candidate, never recorded or uploaded. */
+function useCamera() {
+  const [stream, setStream] = useState<MediaStream | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const toggle = useCallback(async () => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
+      setStream(null);
+      return;
+    }
+    try {
+      const s = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 360 }, audio: false });
+      streamRef.current = s;
+      setStream(s);
+      setError(null);
+    } catch {
+      setError("Camera access was blocked or no camera was found. You can continue without it.");
+    }
+  }, []);
+  useEffect(() => () => streamRef.current?.getTracks().forEach((t) => t.stop()), []);
+  return { stream, error, toggle };
+}
+
+function SelfView({ stream, compact }: { stream: MediaStream | null; compact?: boolean }) {
+  const ref = useRef<HTMLVideoElement>(null);
+  useEffect(() => {
+    if (ref.current) ref.current.srcObject = stream;
+  }, [stream]);
+  return (
+    <div className={`self-view ${compact ? "compact" : ""}`}>
+      {stream ? <video ref={ref} autoPlay muted playsInline aria-label="Your camera (only visible to you)" /> : <div className="cam-off">Camera off</div>}
+      <span className="tile-label">You</span>
+    </div>
+  );
+}
+
+export default function InterviewRunner({ initial, levelLabel, categoryLabels, avatar }: Props) {
   const router = useRouter();
   const [state, setState] = useState(initial);
   const [answer, setAnswer] = useState<AnswerValue>(emptyAnswer);
@@ -32,18 +80,105 @@ export default function InterviewRunner({ initial, levelLabel, categoryLabels }:
   const [error, setError] = useState<string | null>(null);
   const [savedNote, setSavedNote] = useState<string | null>(null);
   const [finishing, setFinishing] = useState(false);
+  const [joined, setJoined] = useState(false);
+  const [avatarState, setAvatarState] = useState<AvatarState>("idle");
+  const [freezeFrame, setFreezeFrame] = useState<string | null>(null);
+  const [videoLive, setVideoLive] = useState(false);
+  const [videoMode, setVideoMode] = useState(avatar.provider === "anam");
+  const [notice, setNotice] = useState<string | null>(null);
+  const [muted, setMuted] = useState(false);
+  const [lastLine, setLastLine] = useState<string>("");
+  const camera = useCamera();
   const left = useCountdown(state.deadline_at);
   const onBusyChange = useCallback((b: boolean) => setInputBusy(b), []);
+
+  const driverRef = useRef<AvatarDriver | null>(null);
+  const spokenRef = useRef<string | null>(null);
+  const prevCategoryRef = useRef<string | null>(null);
 
   const step = state.step;
   const voice = state.response_mode === "voice";
   const timeUp = step.type === "time_up" || left === 0;
+  const speaking = avatarState === "speaking" || avatarState === "connecting";
+
+  const fallbackToVoice = useCallback((message: string) => {
+    driverRef.current?.destroy();
+    driverRef.current = new BrowserVoiceDriver({ onState: setAvatarState });
+    setVideoMode(false);
+    setNotice(`${message.replace(/\.?$/, ".")} The interview continues with a voice-only interviewer.`);
+  }, []);
+
+  const say = useCallback(
+    async (text: string) => {
+      setLastLine(text);
+      const d = driverRef.current;
+      if (!d) return;
+      await d.say(text);
+      // If the video avatar failed during this line, repeat it with the voice fallback.
+      if (driverRef.current && driverRef.current !== d) await driverRef.current.say(text);
+    },
+    [],
+  );
+
+  function createDriver(): AvatarDriver {
+    const cb = { onState: setAvatarState, onFreezeFrame: setFreezeFrame, onLiveChange: setVideoLive, onFatal: fallbackToVoice };
+    if (avatar.provider === "test") return new TestDriver(cb);
+    if (avatar.provider === "browser") return new BrowserVoiceDriver(cb);
+    return new AnamDriver(
+      VIDEO_ID,
+      async () => {
+        const res = await fetch(`/api/sessions/${state.session_id}/avatar-token`, { method: "POST" });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data.sessionToken) throw new Error(data.error ?? `HTTP ${res.status}`);
+        return data.sessionToken as string;
+      },
+      avatar.idleMs,
+      cb,
+    );
+  }
+
+  useEffect(() => () => driverRef.current?.destroy(), []);
+
+  // Speak whenever the interview moves to a new step.
+  useEffect(() => {
+    if (!joined) return;
+    const key = timeUp && step.type !== "finished" ? "time_up" : stepKey(step);
+    if (spokenRef.current === key) return;
+    const firstLine = spokenRef.current === null;
+    spokenRef.current = key;
+
+    let text = "";
+    if (key === "time_up" || step.type === "finished") {
+      text = firstLine ? "" : closingLine(key === "time_up");
+    } else if (step.type === "question") {
+      if (firstLine) {
+        const resuming = step.position > 1;
+        text = `${introLine({ name: avatar.interviewerName, role: state.role, total: state.total_questions, resuming, position: step.position })} ${
+          resuming ? step.question_text : questionLine({ position: step.position, text: step.question_text, category: step.category, previousCategory: null })
+        }`;
+      } else {
+        text = questionLine({ position: step.position, text: step.question_text, category: step.category, previousCategory: prevCategoryRef.current });
+      }
+      prevCategoryRef.current = step.category;
+    } else if (step.type === "followup") {
+      text = firstLine ? `Welcome back. Before we move on, one follow-up. ${followupLine(step.followup_text)}` : followupLine(step.followup_text);
+      prevCategoryRef.current = step.category;
+    }
+    if (text) void say(text);
+  }, [joined, step, timeUp, state.role, state.total_questions, avatar.interviewerName, say]);
+
+  function join() {
+    // The click is the user gesture browsers require before the interviewer can play audio.
+    driverRef.current = createDriver();
+    setJoined(true);
+  }
 
   async function submit(skip = false) {
     if (step.type !== "question" && step.type !== "followup") return;
     setBusy(true);
     setError(null);
     setSavedNote(null);
+    driverRef.current?.prepare(); // warm up the video connection while the answer saves
     try {
       const res = await fetch(`/api/sessions/${state.session_id}/answer`, {
         method: "POST",
@@ -63,7 +198,6 @@ export default function InterviewRunner({ initial, levelLabel, categoryLabels }:
       setState(data.state);
       setAnswer(emptyAnswer);
       setSavedNote(skip ? "Skipped." : "Answer saved.");
-      window.scrollTo({ top: 0, behavior: "smooth" });
     } catch (err) {
       setError(`${err instanceof Error ? err.message : String(err)} Your text is still in the box; please try again.`);
     } finally {
@@ -72,6 +206,8 @@ export default function InterviewRunner({ initial, levelLabel, categoryLabels }:
   }
 
   async function finish() {
+    driverRef.current?.destroy();
+    driverRef.current = null;
     setFinishing(true);
     setError(null);
     try {
@@ -85,8 +221,21 @@ export default function InterviewRunner({ initial, levelLabel, categoryLabels }:
     }
   }
 
+  function toggleMute() {
+    driverRef.current?.setMuted(!muted);
+    setMuted(!muted);
+  }
+
   const answeredPct = Math.round((state.answered / state.total_questions) * 100);
   const mins = left !== null ? `${Math.floor(left / 60000)}:${String(Math.floor((left % 60000) / 1000)).padStart(2, "0")}` : null;
+  const statusText: Record<AvatarState, string> = {
+    idle: "Ready",
+    connecting: "Joining…",
+    speaking: "Speaking",
+    listening: "Listening",
+    error: "Reconnecting…",
+  };
+  const initials = avatar.interviewerName.slice(0, 1).toUpperCase();
 
   if (finishing) {
     return (
@@ -98,29 +247,135 @@ export default function InterviewRunner({ initial, levelLabel, categoryLabels }:
     );
   }
 
-  return (
-    <div className="stack">
-      <div className="spread">
-        <div>
-          <h1 style={{ marginBottom: 4 }}>{state.role}</h1>
-          <span className="muted">
-            {levelLabel} · mock interview
+  const header = (
+    <div className="spread">
+      <div>
+        <h1 style={{ marginBottom: 4 }}>{state.role}</h1>
+        <span className="muted">{levelLabel} · mock interview</span>
+      </div>
+      <div className="row">
+        {mins && (
+          <span className={`chip ${left! < 5 * 60000 ? "" : "brand"}`} aria-live="polite">
+            ⏱ {mins} left
           </span>
-        </div>
-        <div className="row">
-          {mins && (
-            <span className={`chip ${left! < 5 * 60000 ? "" : "brand"}`} aria-live="polite">
-              ⏱ {mins} left
-            </span>
-          )}
-          <span className="chip">
-            {Math.min(state.answered + (step.type === "finished" ? 0 : 1), state.total_questions)} of {state.total_questions}
-          </span>
+        )}
+        <span className="chip">
+          {Math.min(state.answered + (step.type === "finished" ? 0 : 1), state.total_questions)} of {state.total_questions}
+        </span>
+      </div>
+    </div>
+  );
+
+  // ---- Lobby (pre-join) ---------------------------------------------------
+  if (!joined) {
+    return (
+      <div className="stack">
+        {header}
+        <div className="card">
+          <h2>Ready to join your interview?</h2>
+          <div className="lobby">
+            <div className="call-stage lobby-stage">
+              <div className="interviewer-tile">
+                <div className="avatar-placeholder">{initials}</div>
+                <span className="tile-label">
+                  {avatar.interviewerName} · AI interviewer
+                </span>
+              </div>
+            </div>
+            <div>
+              <SelfView stream={camera.stream} />
+              <div className="row" style={{ marginTop: 10 }}>
+                <button className="btn secondary small" onClick={camera.toggle}>
+                  {camera.stream ? "Turn camera off" : "Turn camera on"}
+                </button>
+                {!camera.stream && <span className="chip brand">Recommended</span>}
+              </div>
+              <p className="hint">
+                Turning your camera on is optional but recommended for the best experience: it helps you practice eye contact and presence, like
+                a real video interview. Your video is only shown to you. It is never recorded, uploaded or scored.
+              </p>
+              {camera.error && <p className="alert small">{camera.error}</p>}
+            </div>
+          </div>
+          <ul className="small muted" style={{ marginTop: 14 }}>
+            <li>
+              {avatar.interviewerName} will ask each question out loud{videoMode ? " on video" : ""}; the question also appears as a caption.
+            </li>
+            <li>{voice ? "Answer by recording your voice after the interviewer finishes speaking." : "Type each answer, then submit it."}</li>
+            <li>Use headphones if you can, and make sure your sound is on.</li>
+          </ul>
+          <button className="btn" onClick={join} style={{ marginTop: 6 }}>
+            Join interview
+          </button>
         </div>
       </div>
+    );
+  }
+
+  // ---- Call --------------------------------------------------------------
+  const live = videoMode && videoLive && !freezeFrame;
+  return (
+    <div className="stack">
+      {header}
       <div className="progress" aria-hidden>
         <span style={{ width: `${answeredPct}%` }} />
       </div>
+      {notice && (
+        <p className="alert small" role="status">
+          {notice}
+        </p>
+      )}
+
+      <div className="call-stage">
+        <div className={`interviewer-tile ${avatarState === "speaking" ? "is-speaking" : ""}`}>
+          {videoMode && <video id={VIDEO_ID} autoPlay playsInline className={live ? "" : "hidden-video"} />}
+          {videoMode && freezeFrame && <img src={freezeFrame} alt="" className="freeze-frame" />}
+          {(!videoMode || (!live && !freezeFrame)) && (
+            <div className="avatar-placeholder">
+              {initials}
+              {avatarState === "speaking" && !videoMode && (
+                <span className="voice-bars" aria-hidden>
+                  <i />
+                  <i />
+                  <i />
+                </span>
+              )}
+            </div>
+          )}
+          <span className={`status-badge ${avatarState}`}>
+            {avatarState === "connecting" && <span className="dot" />}
+            {statusText[avatarState]}
+          </span>
+          <span className="tile-label">
+            {avatar.interviewerName} · AI interviewer{!videoMode ? " (voice)" : ""}
+          </span>
+          <SelfView stream={camera.stream} compact />
+        </div>
+        {lastLine && (
+          <div className="captions" aria-live="polite">
+            {lastLine}
+          </div>
+        )}
+        <div className="call-controls">
+          <button className="ctl" onClick={camera.toggle} aria-pressed={!!camera.stream}>
+            {camera.stream ? "📷 Camera on" : "📷 Camera off"}
+          </button>
+          <button className="ctl" onClick={toggleMute} aria-pressed={muted}>
+            {muted ? "🔇 Interviewer muted" : "🔊 Interviewer sound"}
+          </button>
+          <button className="ctl" onClick={() => lastLine && void say(lastLine)} disabled={speaking || inputBusy || !lastLine}>
+            ↻ Repeat
+          </button>
+          <button
+            className="ctl danger"
+            onClick={() => confirm("End the interview now? Unanswered questions will score 0.") && finish()}
+            disabled={busy || inputBusy}
+          >
+            End interview
+          </button>
+        </div>
+      </div>
+
       {savedNote && (
         <p className="small status-good" role="status">
           ✓ {savedNote}
@@ -157,8 +412,10 @@ export default function InterviewRunner({ initial, levelLabel, categoryLabels }:
             onChange={setAnswer}
             onBusyChange={onBusyChange}
             disabled={busy}
+            recordingBlocked={speaking}
             label={step.type === "followup" ? "Your follow-up answer" : "Your answer"}
           />
+          {voice && speaking && <p className="hint">You can start recording when {avatar.interviewerName} finishes speaking.</p>}
           {step.category === "behavioral" && step.type === "question" && (
             <p className="hint">Tip: describe the Situation, your Task, the Actions you personally took, and the Result.</p>
           )}
@@ -167,21 +424,12 @@ export default function InterviewRunner({ initial, levelLabel, categoryLabels }:
               {error}
             </p>
           )}
-          <div className="spread" style={{ marginTop: 14 }}>
-            <div className="row">
-              <button className="btn" onClick={() => submit(false)} disabled={busy || inputBusy || !answer.text.trim()}>
-                {busy ? "Saving…" : step.type === "followup" ? "Submit follow-up" : "Submit answer"}
-              </button>
-              <button className="btn ghost" onClick={() => submit(true)} disabled={busy || inputBusy}>
-                {step.type === "followup" ? "Skip follow-up" : "Skip question"}
-              </button>
-            </div>
-            <button
-              className="btn ghost small"
-              onClick={() => confirm("End the interview now? Unanswered questions will score 0.") && finish()}
-              disabled={busy || inputBusy}
-            >
-              End interview early
+          <div className="row" style={{ marginTop: 14 }}>
+            <button className="btn" onClick={() => submit(false)} disabled={busy || inputBusy || !answer.text.trim()}>
+              {busy ? "Saving…" : step.type === "followup" ? "Submit follow-up" : "Submit answer"}
+            </button>
+            <button className="btn ghost" onClick={() => submit(true)} disabled={busy || inputBusy}>
+              {step.type === "followup" ? "Skip follow-up" : "Skip question"}
             </button>
           </div>
         </div>

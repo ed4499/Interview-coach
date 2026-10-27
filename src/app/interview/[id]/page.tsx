@@ -2,6 +2,7 @@ import { notFound, redirect } from "next/navigation";
 import { getCandidateId } from "@/lib/candidate";
 import { CATEGORY_LABELS, LEVEL_LABELS } from "@/lib/config";
 import { getInterviewState, getSession } from "@/lib/interview";
+import { avatarClientConfig } from "@/lib/avatar";
 import InterviewRunner from "@/components/InterviewRunner";
 
 export const dynamic = "force-dynamic";
@@ -17,6 +18,7 @@ export default async function InterviewPage({ params }: { params: Promise<{ id: 
       initial={getInterviewState(s)}
       levelLabel={LEVEL_LABELS[s.experience_level]}
       categoryLabels={CATEGORY_LABELS}
+      avatar={avatarClientConfig()}
     />
   );
 }

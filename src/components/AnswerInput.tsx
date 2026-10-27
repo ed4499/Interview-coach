@@ -37,10 +37,12 @@ interface Props {
   onChange: (v: AnswerValue) => void;
   onBusyChange?: (busy: boolean) => void;
   disabled?: boolean;
+  /** Blocks starting a recording (e.g. while the interviewer is speaking, so its voice isn't transcribed). */
+  recordingBlocked?: boolean;
   label?: string;
 }
 
-export default function AnswerInput({ sessionId, voice, value, onChange, onBusyChange, disabled, label = "Your answer" }: Props) {
+export default function AnswerInput({ sessionId, voice, value, onChange, onBusyChange, disabled, recordingBlocked, label = "Your answer" }: Props) {
   const [recording, setRecording] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [interim, setInterim] = useState("");
@@ -157,7 +159,7 @@ export default function AnswerInput({ sessionId, voice, value, onChange, onBusyC
       {voice && (
         <div className="row" style={{ marginBottom: 10 }}>
           {!recording ? (
-            <button type="button" className="btn secondary" onClick={startRecording} disabled={disabled || uploading}>
+            <button type="button" className="btn secondary" onClick={startRecording} disabled={disabled || uploading || recordingBlocked}>
               🎙 {value.audio_id ? "Record again" : "Start recording"}
             </button>
           ) : (

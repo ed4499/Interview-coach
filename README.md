@@ -44,6 +44,33 @@ keyword heuristic so QA can walk through the whole product. Every page shows a y
 Every push to `main` redeploys automatically. To demo without an API key, add
 `INTERVIEW_AI_MODE=test` in the service's Environment tab (scores are then fake and labelled).
 
+## Video interviewer (avatar)
+
+The interview runs like a video call. A pre-join lobby offers an optional camera self-view
+(recommended, shown only to the candidate, never recorded or uploaded). Then an AI interviewer
+reads each question aloud with on-screen captions, and the candidate gets camera/sound/repeat/end
+controls.
+
+* **Realistic video avatar:** [Anam](https://anam.ai) streams a lifelike interviewer over WebRTC.
+  Set `ANAM_API_KEY` (from lab.anam.ai) to enable it. The avatar only says text this app sends
+  (`llmId: CUSTOMER_CLIENT_V1` disables Anam's own LLM; the SDK runs with input audio disabled), so
+  questions stay verbatim and scoring stays ours. Anam recordings and transcripts are turned off.
+* **Cost control:** Anam bills per second while a session is open, and smaller plans cap session
+  length (Free 3 min, Starter 5, Explorer 10, Growth+ 2 h). By default the avatar connects to ask each
+  question, then disconnects while the candidate answers, leaving its last frame on screen
+  (`AVATAR_IDLE_SECONDS=0`, about 8 avatar-minutes per 15-question interview). On a Growth+ plan, set
+  `AVATAR_IDLE_SECONDS=3600` and `AVATAR_MAX_SESSION_SECONDS=7200` for one continuous live session.
+* **Customizing:** `ANAM_AVATAR_ID`, `ANAM_VOICE_ID` (from Anam's gallery or your own) and
+  `INTERVIEWER_NAME`.
+* **Fallback:** without a key, or if the video can't connect, the interviewer continues with the
+  browser's built-in voice. The interview never stalls.
+* Voice answers can only start recording after the interviewer finishes speaking, so its voice isn't
+  transcribed into the answer.
+
+Code: `src/lib/avatar.ts` (config + session tokens), `src/app/api/sessions/[id]/avatar-token`,
+`src/components/avatar/drivers.ts` (provider-neutral driver interface: Anam, browser voice, test),
+`src/lib/interviewerScript.ts` (neutral spoken transitions), `src/components/InterviewRunner.tsx`.
+
 ## How it works
 
 ```

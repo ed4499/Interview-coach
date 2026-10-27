@@ -25,17 +25,30 @@ test("full 15-question text interview, results, retry, dashboard and report", as
   await shot(page, "02-setup");
   await page.getByRole("button", { name: "Start interview" }).click();
 
+  // Pre-join lobby: camera is optional but recommended; the self-view is never uploaded.
+  await expect(page.getByText("Ready to join your interview?")).toBeVisible();
+  await expect(page.getByText("Recommended", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Turn camera on" }).click();
+  await expect(page.locator(".self-view video")).toBeVisible();
+  await shot(page, "02b-lobby");
+  await page.getByRole("button", { name: "Join interview" }).click();
+  await expect(page.locator(".captions")).toContainText("Hi, I'm Cara");
+  await expect(page.locator(".self-view.compact video")).toBeVisible();
+
   const seen: string[] = [];
   for (let i = 1; i <= 15; i++) {
     await expect(page.getByText(`${i} of 15`)).toBeVisible();
     const chip = await page.locator(".card .chip.brand").first().textContent();
     seen.push(chip ?? "");
+    // The interviewer reads each question aloud; captions show exactly what was said.
+    await expect(page.locator(".captions")).toContainText((await page.locator(".question-text").textContent())!);
     if (i === 1) await shot(page, "03-question");
     // Short answer on Q1 triggers the (test-mode) follow-up.
     await page.locator("#answer").fill(i === 1 ? "I fixed a network outage." : STAR_ANSWER);
     await page.getByRole("button", { name: "Submit answer" }).click();
     if (i === 1) {
       await expect(page.getByText("Follow-up:")).toBeVisible();
+      await expect(page.locator(".captions")).toHaveText("What specifically was your responsibility?");
       await shot(page, "04-followup");
       await page.locator("#answer").fill("I personally owned the outage ticket and coordinated the switch replacement.");
       await page.getByRole("button", { name: "Submit follow-up" }).click();
@@ -45,6 +58,7 @@ test("full 15-question text interview, results, retry, dashboard and report", as
   expect(seen.filter((c) => c.startsWith("Behavioral"))).toHaveLength(5);
   expect(seen.filter((c) => c === "Technical knowledge")).toHaveLength(5);
   expect(seen.filter((c) => c === "Technical scenario")).toHaveLength(5);
+  await expect(page.locator(".captions")).toContainText("That completes the interview");
   // No scores during the interview.
   await expect(page.locator(".score-pill")).toHaveCount(0);
 
@@ -114,8 +128,10 @@ test("voice interview records audio with consent and falls back to typing", asyn
   await expect(page.getByRole("button", { name: "Start interview" })).toBeDisabled();
   await page.getByText(/I consent to TreTechPro.ai recording/).click();
   await page.getByRole("button", { name: "Start interview" }).click();
+  await page.getByRole("button", { name: "Join interview" }).click();
 
   await expect(page.getByText("1 of 5")).toBeVisible();
+  await expect(page.locator(".status-badge")).toHaveText("Listening");
   await page.getByRole("button", { name: /Start recording/ }).click();
   await page.waitForTimeout(1500);
   await page.getByRole("button", { name: /Stop recording/ }).click();
@@ -127,7 +143,7 @@ test("voice interview records audio with consent and falls back to typing", asyn
 
   // End early: remaining questions are scored 0, recording is playable on the results page.
   page.once("dialog", (d) => d.accept());
-  await page.getByRole("button", { name: "End interview early" }).click();
+  await page.getByRole("button", { name: "End interview" }).click();
   await expect(page.getByText("Overall score / 100")).toBeVisible({ timeout: 60_000 });
   await page.locator("details.q").first().locator("summary").click();
   const src = await page.locator("audio").first().getAttribute("src");
@@ -136,4 +152,23 @@ test("voice interview records audio with consent and falls back to typing", asyn
   expect(audio.ok()).toBe(true);
   expect((await audio.body()).length).toBeGreaterThan(100);
   await expect(page.getByText("Not reached before the interview ended.").first()).toBeHidden(); // inside closed details
+});
+
+test("falls back to a voice-only interviewer when the video avatar can't connect", async ({ page }) => {
+  const base = "http://localhost:3101";
+  await page.goto(`${base}/interview/new`);
+  await page.selectOption("#role", "Data Analyst");
+  await page.getByText("Entry-Level").click();
+  await page.getByText("Technical Scenarios (5 questions)").click();
+  await page.getByRole("button", { name: "Start interview" }).click();
+  await page.getByRole("button", { name: "Join interview" }).click();
+  await expect(page.getByText(/continues with a voice-only interviewer/)).toBeVisible({ timeout: 30_000 });
+  await expect(page.locator(".tile-label").first()).toContainText("(voice)");
+  await expect(page.locator(".captions")).toContainText("Here's the first question.");
+  await shot(page, "12-voice-fallback");
+  // The interview itself is unaffected.
+  await page.locator("#answer").fill(STAR_ANSWER);
+  await page.getByRole("button", { name: "Submit answer" }).click();
+  await expect(page.getByText(/Answer saved/)).toBeVisible();
+  await expect(page.getByText("2 of 5")).toBeVisible();
 });
