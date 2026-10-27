@@ -18,7 +18,7 @@ export default async function InterviewPage({ params }: { params: Promise<{ id: 
       initial={getInterviewState(s)}
       levelLabel={LEVEL_LABELS[s.experience_level]}
       categoryLabels={CATEGORY_LABELS}
-      avatar={avatarClientConfig()}
+      avatar={await avatarClientConfig()}
     />
   );
 }

@@ -120,6 +120,12 @@ CREATE TABLE IF NOT EXISTS evaluations (
   created_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS app_settings (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS attempt_comparisons (
   retry_attempt_id TEXT PRIMARY KEY REFERENCES attempts(id) ON DELETE CASCADE,
   previous_attempt_id TEXT NOT NULL REFERENCES attempts(id) ON DELETE CASCADE,

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { DEFAULT_HANDS_FREE, type HandsFreePhase, HandsFreeTimer } from "@/lib/handsFree";
 
 export interface AnswerValue {
   text: string;
@@ -40,9 +41,26 @@ interface Props {
   /** Blocks starting a recording (e.g. while the interviewer is speaking, so its voice isn't transcribed). */
   recordingBlocked?: boolean;
   label?: string;
+  /** Hands-free: start listening automatically and submit after the candidate stops talking. */
+  handsFree?: boolean;
+  /** With handsFree, start recording as soon as this becomes true (once per mount). */
+  autoStart?: boolean;
+  onAutoSubmit?: (v: AnswerValue) => void;
 }
 
-export default function AnswerInput({ sessionId, voice, value, onChange, onBusyChange, disabled, recordingBlocked, label = "Your answer" }: Props) {
+export default function AnswerInput({
+  sessionId,
+  voice,
+  value,
+  onChange,
+  onBusyChange,
+  disabled,
+  recordingBlocked,
+  label = "Your answer",
+  handsFree = false,
+  autoStart = false,
+  onAutoSubmit,
+}: Props) {
   const [recording, setRecording] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [interim, setInterim] = useState("");
@@ -55,6 +73,18 @@ export default function AnswerInput({ sessionId, voice, value, onChange, onBusyC
   const live = useRef({ base: "", rawPrefix: "", finalText: "", active: false });
   const valueRef = useRef(value);
   valueRef.current = value;
+  const srEnded = useRef<(() => void) | null>(null);
+  const uploadDone = useRef<Promise<void>>(Promise.resolve());
+  const hf = useRef(new HandsFreeTimer(DEFAULT_HANDS_FREE));
+  const autoStarted = useRef(false);
+  const submitting = useRef(false);
+  const [hfPhase, setHfPhase] = useState<HandsFreePhase>({ phase: "waiting" });
+
+  /** Updates the parent and our ref immediately, so an auto-submit right after sees the latest text. */
+  function emit(v: AnswerValue) {
+    valueRef.current = v;
+    onChange(v);
+  }
 
   useEffect(() => setSrSupported(!!speechRecognitionCtor()), []);
   useEffect(() => onBusyChange?.(recording || uploading), [recording, uploading, onBusyChange]);
@@ -69,13 +99,18 @@ export default function AnswerInput({ sessionId, voice, value, onChange, onBusyC
 
   async function startRecording() {
     setAudioStatus(null);
+    hf.current = new HandsFreeTimer(DEFAULT_HANDS_FREE);
+    submitting.current = false;
+    setHfPhase({ phase: "waiting" });
     try {
       const media = await navigator.mediaDevices.getUserMedia({ audio: true });
       stream.current = media;
       const rec = new MediaRecorder(media);
       chunks.current = [];
       rec.ondataavailable = (e) => e.data.size && chunks.current.push(e.data);
-      rec.onstop = () => upload(new Blob(chunks.current, { type: rec.mimeType || "audio/webm" }));
+      rec.onstop = () => {
+        uploadDone.current = upload(new Blob(chunks.current, { type: rec.mimeType || "audio/webm" }));
+      };
       rec.start();
       recorder.current = rec;
 
@@ -99,8 +134,9 @@ export default function AnswerInput({ sessionId, voice, value, onChange, onBusyC
             else interimText += r[0].transcript;
           }
           setInterim(interimText);
+          hf.current.speech(Date.now());
           const transcript = live.current.finalText.trim();
-          onChange({
+          emit({
             ...valueRef.current,
             text: live.current.base + transcript,
             source: "audio_transcript",
@@ -109,7 +145,10 @@ export default function AnswerInput({ sessionId, voice, value, onChange, onBusyC
           });
         };
         // Browsers end recognition after silence; keep listening while recording.
-        sr.onend = () => live.current.active && sr.start();
+        sr.onend = () => {
+          if (live.current.active) sr.start();
+          else srEnded.current?.();
+        };
         sr.onerror = (e) => {
           if (e.error === "not-allowed" || e.error === "service-not-allowed") {
             live.current.active = false;
@@ -125,15 +164,56 @@ export default function AnswerInput({ sessionId, voice, value, onChange, onBusyC
     }
   }
 
-  function stopRecording() {
+  /** Stops recording; resolves once final transcript results and the audio upload are done. */
+  async function stopRecording(): Promise<void> {
     live.current.active = false;
+    const finalResults = new Promise<void>((resolve) => {
+      srEnded.current = resolve;
+      setTimeout(resolve, 1500);
+    });
+    const hadRecognition = !!recognition.current;
     recognition.current?.stop();
     recognition.current = null;
+    const hadRecorder = recorder.current && recorder.current.state !== "inactive";
+    const stopped = new Promise<void>((resolve) => {
+      if (!hadRecorder) return resolve();
+      recorder.current!.addEventListener("stop", () => resolve(), { once: true });
+    });
     recorder.current?.stop();
     stream.current?.getTracks().forEach((t) => t.stop());
     setRecording(false);
     setInterim("");
+    await Promise.all([hadRecognition ? finalResults : Promise.resolve(), stopped]);
+    await uploadDone.current;
   }
+
+  async function finishHandsFree() {
+    if (submitting.current) return;
+    submitting.current = true;
+    await stopRecording();
+    if (valueRef.current.text.trim()) onAutoSubmit?.(valueRef.current);
+    else submitting.current = false;
+  }
+
+  // Hands-free: open the mic automatically once the interviewer has finished speaking.
+  useEffect(() => {
+    if (!voice || !handsFree || !autoStart || recordingBlocked || disabled || autoStarted.current || !speechRecognitionCtor()) return;
+    autoStarted.current = true;
+    void startRecording();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [voice, handsFree, autoStart, recordingBlocked, disabled]);
+
+  // Hands-free: watch for the end of the answer.
+  useEffect(() => {
+    if (!recording || !handsFree) return;
+    const t = setInterval(() => {
+      const p = hf.current.state(Date.now());
+      setHfPhase(p);
+      if (p.phase === "submit") void finishHandsFree();
+    }, 200);
+    return () => clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [recording, handsFree]);
 
   async function upload(blob: Blob) {
     if (!blob.size) return;
@@ -144,7 +224,7 @@ export default function AnswerInput({ sessionId, voice, value, onChange, onBusyC
       const res = await fetch(`/api/sessions/${sessionId}/audio`, { method: "POST", body: fd });
       const data = await res.json();
       if (!res.ok || !data.saved) throw new Error(data.error ?? "Upload failed");
-      onChange({ ...valueRef.current, audio_id: data.audio_id });
+      emit({ ...valueRef.current, audio_id: data.audio_id });
       setAudioStatus({ ok: true, msg: "Recording saved." });
     } catch (err) {
       setAudioStatus({ ok: false, msg: `The recording was NOT saved (${err instanceof Error ? err.message : "error"}). Your transcript text is still here; record again or submit the text.` });
@@ -163,14 +243,45 @@ export default function AnswerInput({ sessionId, voice, value, onChange, onBusyC
               🎙 {value.audio_id ? "Record again" : "Start recording"}
             </button>
           ) : (
-            <button type="button" className="btn danger" onClick={stopRecording}>
-              <span className="rec-dot" aria-hidden /> Stop recording
+            <button
+              type="button"
+              className="btn danger"
+              onClick={() => {
+                hf.current.pause();
+                void stopRecording();
+              }}
+            >
+              <span className="rec-dot" aria-hidden /> {handsFree ? "Stop listening" : "Stop recording"}
             </button>
           )}
           {uploading && <span className="muted small">Saving recording…</span>}
           {audioStatus && (
             <span className={`small ${audioStatus.ok ? "status-good" : "status-bad"}`} role="status">
               {audioStatus.msg}
+            </span>
+          )}
+        </div>
+      )}
+      {voice && handsFree && recording && (
+        <div className={`handsfree ${hfPhase.phase}`} role="status" aria-live="polite">
+          {hfPhase.phase === "countdown" ? (
+            <>
+              <span>
+                Submitting your answer in {Math.ceil(hfPhase.remainingMs / 1000)}… keep talking to continue.
+              </span>
+              <span className="row" style={{ gap: 6 }}>
+                <button type="button" className="btn secondary small" onClick={() => hf.current.extend(Date.now())}>
+                  Not done yet
+                </button>
+                <button type="button" className="btn small" onClick={() => void finishHandsFree()}>
+                  Submit now
+                </button>
+              </span>
+            </>
+          ) : (
+            <span>
+              <span className="rec-dot" aria-hidden /> {hfPhase.phase === "speaking" ? "Listening…" : "Listening. Start your answer whenever you're ready."}{" "}
+              <span className="muted">It submits automatically after you pause for a few seconds.</span>
             </span>
           )}
         </div>
@@ -184,7 +295,7 @@ export default function AnswerInput({ sessionId, voice, value, onChange, onBusyC
       <textarea
         id="answer"
         value={value.text}
-        onChange={(e) => onChange({ ...value, text: e.target.value })}
+        onChange={(e) => emit({ ...value, text: e.target.value })}
         disabled={disabled || recording}
         placeholder={voice ? "Your transcript appears here while you speak. You can correct it before submitting." : "Type your answer…"}
         maxLength={20000}

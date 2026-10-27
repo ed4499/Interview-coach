@@ -117,9 +117,39 @@ test("full 15-question text interview, results, retry, dashboard and report", as
   await page.waitForURL(/\/results$/);
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
   await shot(page, "11-results-mobile");
+  await page.getByRole("link", { name: "Interviewer settings" }).click();
+  await expect(page.getByText(/isn't enabled/)).toBeVisible();
 });
 
-test("voice interview records audio with consent and falls back to typing", async ({ page }) => {
+test("hands-free voice interview: listens automatically, transcribes, and submits after a pause", async ({ page }) => {
+  // Headless Chromium has no working speech recognition, so simulate one that "hears" a spoken answer.
+  await page.addInitScript(() => {
+    class FakeRecognition {
+      continuous = false;
+      interimResults = false;
+      lang = "en-US";
+      onresult: ((e: unknown) => void) | null = null;
+      onend: (() => void) | null = null;
+      onerror: ((e: unknown) => void) | null = null;
+      private timer: ReturnType<typeof setTimeout> | null = null;
+      start() {
+        if ((window as unknown as { __spoken?: boolean }).__spoken) return;
+        this.timer = setTimeout(() => {
+          (window as unknown as { __spoken?: boolean }).__spoken = true;
+          const text = "When I worked the college help desk, my role was to fix a printer outage. I checked the DHCP leases and configured reservations, and tickets dropped.";
+          this.onresult?.({ resultIndex: 0, results: [Object.assign([{ transcript: text }], { isFinal: true })] });
+        }, 400);
+      }
+      stop() {
+        if (this.timer) clearTimeout(this.timer);
+        setTimeout(() => this.onend?.(), 50);
+      }
+    }
+    for (const name of ["SpeechRecognition", "webkitSpeechRecognition"]) {
+      Object.defineProperty(window, name, { value: FakeRecognition, configurable: true, writable: true });
+    }
+  });
+
   await page.goto("/interview/new");
   await page.selectOption("#role", "SOC Analyst");
   await page.getByText("Entry-Level").click();
@@ -131,27 +161,29 @@ test("voice interview records audio with consent and falls back to typing", asyn
   await page.getByRole("button", { name: "Join interview" }).click();
 
   await expect(page.getByText("1 of 5")).toBeVisible();
-  await expect(page.locator(".status-badge")).toHaveText("Listening");
-  await page.getByRole("button", { name: /Start recording/ }).click();
-  await page.waitForTimeout(1500);
-  await page.getByRole("button", { name: /Stop recording/ }).click();
-  await expect(page.getByText("Recording saved.")).toBeVisible({ timeout: 15_000 });
-  await shot(page, "09-voice");
-  await page.locator("#answer").fill(STAR_ANSWER);
-  await page.getByRole("button", { name: "Submit answer" }).click();
-  await expect(page.getByText(/Answer saved/)).toBeVisible();
+  // The mic opens on its own once the interviewer finishes, and the transcript fills in.
+  await expect(page.getByRole("button", { name: /Stop listening/ })).toBeVisible();
+  await expect(page.locator("#answer")).toHaveValue(/college help desk/);
+  await expect(page.getByText(/Submitting your answer in/)).toBeVisible({ timeout: 10_000 });
+  await shot(page, "09-hands-free-countdown");
+  // Auto-submit: the answer and its recording are saved, and the interviewer asks the next question.
+  await expect(page.getByText(/Answer saved/)).toBeVisible({ timeout: 10_000 });
+  // The short sample answer triggers a (test-mode) follow-up, which the interviewer asks right away.
+  await expect(page.locator(".captions")).toHaveText("What specifically was your responsibility?");
+  await expect(page.getByText("Follow-up:")).toBeVisible();
 
   // End early: remaining questions are scored 0, recording is playable on the results page.
+  await page.getByRole("button", { name: /Stop listening/ }).click().catch(() => {});
   page.once("dialog", (d) => d.accept());
   await page.getByRole("button", { name: "End interview" }).click();
   await expect(page.getByText("Overall score / 100")).toBeVisible({ timeout: 60_000 });
   await page.locator("details.q").first().locator("summary").click();
+  await expect(page.locator("details.q").first().locator("blockquote")).toContainText("college help desk");
   const src = await page.locator("audio").first().getAttribute("src");
   expect(src).toMatch(/^\/api\/audio\//);
   const audio = await page.request.get(src!);
   expect(audio.ok()).toBe(true);
   expect((await audio.body()).length).toBeGreaterThan(100);
-  await expect(page.getByText("Not reached before the interview ended.").first()).toBeHidden(); // inside closed details
 });
 
 test("falls back to a voice-only interviewer when the video avatar can't connect", async ({ page }) => {

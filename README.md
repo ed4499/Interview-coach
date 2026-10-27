@@ -62,6 +62,19 @@ controls.
   `AVATAR_IDLE_SECONDS=3600` and `AVATAR_MAX_SESSION_SECONDS=7200` for one continuous live session.
 * **Customizing:** `ANAM_AVATAR_ID`, `ANAM_VOICE_ID` (from Anam's gallery or your own) and
   `INTERVIEWER_NAME`.
+* **Natural idling:** while the candidate answers, the tile plays the avatar's official idle loop
+  (Anam `idleVideoUrl`, refreshed every 30 minutes), so the interviewer blinks and moves like a person
+  listening without keeping a billed live session open.
+* **Voice and accent:** the **Interviewer settings** page (footer link, `/settings/interviewer`) lists
+  the account's American voices (or all accents) with audio samples. "Use this voice" saves the choice
+  in the database and new interviews use it immediately. Precedence: settings page, then
+  `ANAM_VOICE_ID`, then the default. Anyone who can sign in can change this; restrict the page
+  before production.
+* **Hands-free voice answers** (voice mode, on by default, can be unticked): the mic opens when the
+  interviewer finishes speaking. After 3.5 s without speech, a visible 3-second countdown starts
+  ("Not done yet" / "Submit now"; talking again cancels it), then the answer submits and the
+  interviewer continues. Nothing submits before the candidate has said something. Requires browser
+  speech recognition (Chrome/Edge); elsewhere candidates record and submit manually.
 * **Fallback:** without a key, or if the video can't connect, the interviewer continues with the
   browser's built-in voice. The interview never stalls.
 * Voice answers can only start recording after the interviewer finishes speaking, so its voice isn't

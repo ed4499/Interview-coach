@@ -11,6 +11,7 @@
  * AVATAR_IDLE_SECONDS high (e.g. 3600) to keep one live session for the whole interview.
  */
 import { isTestMode } from "./ai";
+import { getSetting } from "./settings";
 
 export type AvatarProvider = "anam" | "browser" | "test";
 
@@ -19,7 +20,13 @@ export interface AvatarClientConfig {
   interviewerName: string;
   /** How long the live video stays connected after speaking before disconnecting. */
   idleMs: number;
+  /** Anam's natural idling loop for this avatar, shown while the live stream is disconnected. */
+  idleVideoUrl: string | null;
+  posterUrl: string | null;
 }
+
+export const VOICE_SETTING = "anam_voice_id";
+const ANAM_API = "https://api.anam.ai";
 
 // Defaults from Anam's documented example persona ("Cara"); override with your own avatar/voice.
 const DEFAULT_AVATAR_ID = "30fa96d0-26c4-4e55-94a0-517025942e18";
@@ -30,14 +37,87 @@ function intEnv(name: string, fallback: number, min: number, max: number): numbe
   return Number.isFinite(n) && process.env[name] !== "" && process.env[name] !== undefined ? Math.max(min, Math.min(max, Math.round(n))) : fallback;
 }
 
-export function avatarClientConfig(): AvatarClientConfig {
+export function avatarId(): string {
+  return process.env.ANAM_AVATAR_ID || DEFAULT_AVATAR_ID;
+}
+
+/** Voice chosen on the Interviewer settings page, else ANAM_VOICE_ID, else the default. */
+export function voiceId(): string {
+  return getSetting(VOICE_SETTING) || process.env.ANAM_VOICE_ID || DEFAULT_VOICE_ID;
+}
+
+async function anamGet<T>(path: string, fetchImpl: typeof fetch = fetch): Promise<T> {
+  const key = process.env.ANAM_API_KEY;
+  if (!key) throw new AvatarUnavailableError("ANAM_API_KEY is not set.");
+  const res = await fetchImpl(`${ANAM_API}${path}`, { headers: { Authorization: `Bearer ${key}` }, cache: "no-store" });
+  if (!res.ok) throw new AvatarUnavailableError(`Anam ${path} failed: HTTP ${res.status}`);
+  return (await res.json()) as T;
+}
+
+interface AnamAvatar {
+  imageUrl?: string | null;
+  idleVideoUrl?: string | null;
+  videoUrl?: string | null;
+}
+
+// Signed idle-video URLs expire after an hour; refresh well before that.
+let mediaCache: { avatarId: string; at: number; media: { idleVideoUrl: string | null; posterUrl: string | null } } | null = null;
+const MEDIA_TTL_MS = 30 * 60_000;
+
+export async function avatarMedia(fetchImpl: typeof fetch = fetch): Promise<{ idleVideoUrl: string | null; posterUrl: string | null }> {
+  const id = avatarId();
+  if (mediaCache && mediaCache.avatarId === id && Date.now() - mediaCache.at < MEDIA_TTL_MS) return mediaCache.media;
+  try {
+    const a = await anamGet<AnamAvatar>(`/v1/avatars/${encodeURIComponent(id)}`, fetchImpl);
+    const media = { idleVideoUrl: a.idleVideoUrl ?? a.videoUrl ?? null, posterUrl: a.imageUrl ?? null };
+    mediaCache = { avatarId: id, at: Date.now(), media };
+    return media;
+  } catch (err) {
+    console.warn("[avatar] could not load avatar idle media:", err);
+    return { idleVideoUrl: null, posterUrl: null };
+  }
+}
+
+export interface AnamVoice {
+  id: string;
+  displayName: string;
+  gender: string | null;
+  country: string | null;
+  description: string | null;
+  sampleUrl: string | null;
+  displayTags: string[];
+}
+
+/** All voices available to this Anam account (paginated API, capped at 1,000). */
+export async function listAnamVoices(fetchImpl: typeof fetch = fetch): Promise<AnamVoice[]> {
+  const out: AnamVoice[] = [];
+  for (let page = 1; page <= 10; page++) {
+    const r = await anamGet<{ data: AnamVoice[]; meta?: { lastPage?: number } }>(`/v1/voices?perPage=100&page=${page}`, fetchImpl);
+    out.push(...r.data);
+    if (!r.meta?.lastPage || page >= r.meta.lastPage) break;
+  }
+  return out;
+}
+
+export async function getAnamVoice(id: string, fetchImpl: typeof fetch = fetch): Promise<AnamVoice> {
+  return anamGet<AnamVoice>(`/v1/voices/${encodeURIComponent(id)}`, fetchImpl);
+}
+
+/** Test hook. */
+export function resetAvatarMediaCache() {
+  mediaCache = null;
+}
+
+export async function avatarClientConfig(): Promise<AvatarClientConfig> {
   const forced = process.env.AVATAR_PROVIDER as AvatarProvider | undefined;
   const provider: AvatarProvider =
     forced === "anam" || forced === "browser" || forced === "test" ? forced : isTestMode() ? "test" : process.env.ANAM_API_KEY ? "anam" : "browser";
+  const media = provider === "anam" ? await avatarMedia() : { idleVideoUrl: null, posterUrl: null };
   return {
     provider,
     interviewerName: process.env.INTERVIEWER_NAME?.trim() || "Cara",
     idleMs: intEnv("AVATAR_IDLE_SECONDS", 0, 0, 7200) * 1000,
+    ...media,
   };
 }
 
@@ -48,9 +128,9 @@ export function anamSessionRequest() {
     clientLabel: "tretechpro-interview-coach",
     personaConfig: {
       name: process.env.INTERVIEWER_NAME?.trim() || "Cara",
-      avatarId: process.env.ANAM_AVATAR_ID || DEFAULT_AVATAR_ID,
+      avatarId: avatarId(),
       avatarModel: process.env.ANAM_AVATAR_MODEL || "cara-4",
-      voiceId: process.env.ANAM_VOICE_ID || DEFAULT_VOICE_ID,
+      voiceId: voiceId(),
       // Disables Anam's built-in LLM: the persona only says what talk() sends.
       llmId: "CUSTOMER_CLIENT_V1",
       skipGreeting: true,

@@ -31,6 +31,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <main>
           <div className="container">{children}</div>
         </main>
+        <footer className="site-footer">
+          <div className="container">
+            <Link href="/settings/interviewer">Interviewer settings</Link>
+          </div>
+        </footer>
       </body>
     </html>
   );

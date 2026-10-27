@@ -1,8 +1,14 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { AvatarUnavailableError, avatarClientConfig, createAnamSessionToken } from "@/lib/avatar";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { AvatarUnavailableError, VOICE_SETTING, avatarClientConfig, avatarMedia, createAnamSessionToken, resetAvatarMediaCache, voiceId } from "@/lib/avatar";
+import { setSetting } from "@/lib/settings";
+import { freshEnv } from "./helpers";
 import { closingLine, introLine, questionLine } from "@/lib/interviewerScript";
 
 const ENV = { ...process.env };
+beforeEach(() => {
+  freshEnv();
+  resetAvatarMediaCache();
+});
 afterEach(() => {
   process.env = { ...ENV };
 });
@@ -37,17 +43,42 @@ describe("Anam session tokens", () => {
     await expect(createAnamSessionToken(fetchMock as unknown as typeof fetch)).rejects.toThrow(/HTTP 401/);
   });
 
-  it("selects the interviewer provider", () => {
+  it("selects the interviewer provider", async () => {
     delete process.env.ANAM_API_KEY;
     delete process.env.INTERVIEW_AI_MODE;
     delete process.env.AVATAR_PROVIDER;
-    expect(avatarClientConfig().provider).toBe("browser");
-    process.env.ANAM_API_KEY = "k";
-    expect(avatarClientConfig()).toMatchObject({ provider: "anam", idleMs: 0, interviewerName: "Cara" });
-    process.env.AVATAR_IDLE_SECONDS = "3600";
-    expect(avatarClientConfig().idleMs).toBe(3_600_000);
+    expect((await avatarClientConfig()).provider).toBe("browser");
     process.env.INTERVIEW_AI_MODE = "test";
-    expect(avatarClientConfig().provider).toBe("test");
+    expect(await avatarClientConfig()).toMatchObject({ provider: "test", idleMs: 0, interviewerName: "Cara", idleVideoUrl: null });
+    process.env.AVATAR_IDLE_SECONDS = "3600";
+    expect((await avatarClientConfig()).idleMs).toBe(3_600_000);
+  });
+
+  it("uses the voice chosen in settings, then ANAM_VOICE_ID, then the default", () => {
+    delete process.env.ANAM_VOICE_ID;
+    const fallback = voiceId();
+    process.env.ANAM_VOICE_ID = "env-voice";
+    expect(voiceId()).toBe("env-voice");
+    setSetting(VOICE_SETTING, "chosen-voice");
+    expect(voiceId()).toBe("chosen-voice");
+    setSetting(VOICE_SETTING, null);
+    delete process.env.ANAM_VOICE_ID;
+    expect(voiceId()).toBe(fallback);
+  });
+
+  it("loads the avatar's idle loop and caches the signed URL", async () => {
+    process.env.ANAM_API_KEY = "k";
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ idleVideoUrl: "https://cdn/idle.mp4", imageUrl: "https://cdn/poster.jpg" })));
+    expect(await avatarMedia(fetchMock as unknown as typeof fetch)).toEqual({ idleVideoUrl: "https://cdn/idle.mp4", posterUrl: "https://cdn/poster.jpg" });
+    await avatarMedia(fetchMock as unknown as typeof fetch);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0][0]).toMatch(/^https:\/\/api\.anam\.ai\/v1\/avatars\//);
+  });
+
+  it("falls back to no idle video if Anam is unreachable", async () => {
+    process.env.ANAM_API_KEY = "k";
+    const fetchMock = vi.fn().mockResolvedValue(new Response("nope", { status: 500 }));
+    expect(await avatarMedia(fetchMock as unknown as typeof fetch)).toEqual({ idleVideoUrl: null, posterUrl: null });
   });
 });
 

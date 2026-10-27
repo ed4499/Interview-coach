@@ -88,6 +88,7 @@ export default function InterviewRunner({ initial, levelLabel, categoryLabels, a
   const [notice, setNotice] = useState<string | null>(null);
   const [muted, setMuted] = useState(false);
   const [lastLine, setLastLine] = useState<string>("");
+  const [handsFree, setHandsFree] = useState(true);
   const camera = useCamera();
   const left = useCountdown(state.deadline_at);
   const onBusyChange = useCallback((b: boolean) => setInputBusy(b), []);
@@ -173,8 +174,9 @@ export default function InterviewRunner({ initial, levelLabel, categoryLabels, a
     setJoined(true);
   }
 
-  async function submit(skip = false) {
+  async function submit(skip = false, override?: AnswerValue) {
     if (step.type !== "question" && step.type !== "followup") return;
+    const a = override ?? answer;
     setBusy(true);
     setError(null);
     setSavedNote(null);
@@ -187,10 +189,10 @@ export default function InterviewRunner({ initial, levelLabel, categoryLabels, a
           question_id: step.question_id,
           phase: step.type === "question" ? "base" : "followup",
           skip,
-          response_text: answer.text,
-          response_source: answer.source,
-          transcript_raw: answer.transcript_raw,
-          audio_id: answer.audio_id,
+          response_text: a.text,
+          response_source: a.source,
+          transcript_raw: a.transcript_raw,
+          audio_id: a.audio_id,
         }),
       });
       const data = await res.json();
@@ -276,7 +278,11 @@ export default function InterviewRunner({ initial, levelLabel, categoryLabels, a
           <div className="lobby">
             <div className="call-stage lobby-stage">
               <div className="interviewer-tile">
-                <div className="avatar-placeholder">{initials}</div>
+                {videoMode && avatar.idleVideoUrl ? (
+                  <video className="idle-video" src={avatar.idleVideoUrl} poster={avatar.posterUrl ?? undefined} autoPlay loop muted playsInline aria-hidden />
+                ) : (
+                  <div className="avatar-placeholder">{initials}</div>
+                )}
                 <span className="tile-label">
                   {avatar.interviewerName} · AI interviewer
                 </span>
@@ -313,7 +319,7 @@ export default function InterviewRunner({ initial, levelLabel, categoryLabels, a
   }
 
   // ---- Call --------------------------------------------------------------
-  const live = videoMode && videoLive && !freezeFrame;
+  const live = videoMode && videoLive && (!freezeFrame || !!avatar.idleVideoUrl);
   return (
     <div className="stack">
       {header}
@@ -328,9 +334,13 @@ export default function InterviewRunner({ initial, levelLabel, categoryLabels, a
 
       <div className="call-stage">
         <div className={`interviewer-tile ${avatarState === "speaking" ? "is-speaking" : ""}`}>
-          {videoMode && <video id={VIDEO_ID} autoPlay playsInline className={live ? "" : "hidden-video"} />}
-          {videoMode && freezeFrame && <img src={freezeFrame} alt="" className="freeze-frame" />}
-          {(!videoMode || (!live && !freezeFrame)) && (
+          {/* Anam's natural idle loop plays whenever the (billed) live stream is disconnected. */}
+          {videoMode && avatar.idleVideoUrl && (
+            <video className="idle-video" src={avatar.idleVideoUrl} poster={avatar.posterUrl ?? undefined} autoPlay loop muted playsInline aria-hidden />
+          )}
+          {videoMode && <video id={VIDEO_ID} autoPlay playsInline className={`live-video ${live ? "" : "hidden-video"}`} />}
+          {videoMode && !avatar.idleVideoUrl && freezeFrame && <img src={freezeFrame} alt="" className="freeze-frame" />}
+          {(!videoMode || (!live && !freezeFrame && !avatar.idleVideoUrl)) && (
             <div className="avatar-placeholder">
               {initials}
               {avatarState === "speaking" && !videoMode && (
@@ -414,8 +424,21 @@ export default function InterviewRunner({ initial, levelLabel, categoryLabels, a
             disabled={busy}
             recordingBlocked={speaking}
             label={step.type === "followup" ? "Your follow-up answer" : "Your answer"}
+            handsFree={voice && handsFree}
+            autoStart={avatarState === "listening"}
+            onAutoSubmit={(v) => void submit(false, v)}
           />
-          {voice && speaking && <p className="hint">You can start recording when {avatar.interviewerName} finishes speaking.</p>}
+          {voice && (
+            <label className="check small" style={{ marginTop: 6 }}>
+              <input type="checkbox" checked={handsFree} onChange={(e) => setHandsFree(e.target.checked)} />
+              <span>Hands-free: start listening when {avatar.interviewerName} finishes, and submit automatically when I stop talking</span>
+            </label>
+          )}
+          {voice && speaking && (
+            <p className="hint">
+              {handsFree ? `Listening starts automatically when ${avatar.interviewerName} finishes speaking.` : `You can start recording when ${avatar.interviewerName} finishes speaking.`}
+            </p>
+          )}
           {step.category === "behavioral" && step.type === "question" && (
             <p className="hint">Tip: describe the Situation, your Task, the Actions you personally took, and the Result.</p>
           )}

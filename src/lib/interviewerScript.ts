@@ -16,7 +16,7 @@ export function introLine(o: { name: string; role: string; total: number; resumi
   return (
     `Hi, I'm ${o.name}, and I'll be your interviewer today for the ${o.role} role. ` +
     `I'll ask you ${o.total} questions. Take your time, and answer as you would in a real interview. ` +
-    `When you're done with an answer, submit it and I'll move on.`
+    `Once you've finished each answer, we'll move on to the next question.`
   );
 }
 
