@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { type AnamVoice, avatarClientConfig, listAnamVoices, voiceId } from "@/lib/avatar";
+import { type AnamVoice, avatarClientConfig, listAnamVoices, resolveVoiceId } from "@/lib/avatar";
 import VoicePicker from "@/components/VoicePicker";
 
 export const dynamic = "force-dynamic";
@@ -22,7 +22,7 @@ export default async function InterviewerSettings({ searchParams }: { searchPara
   } catch (err) {
     error = err instanceof Error ? err.message : String(err);
   }
-  const current = voiceId();
+  const { id: current, auto } = await resolveVoiceId();
   const all = show === "all";
   const shown = voices
     .filter((v) => all || v.country === "US" || v.id === current)
@@ -42,6 +42,9 @@ export default async function InterviewerSettings({ searchParams }: { searchPara
         </Link>
       </div>
       {error && <p className="alert error">Could not load voices from Anam: {error}</p>}
+      {!error && auto && (
+        <p className="alert small">No voice has been chosen yet, so an American voice was selected automatically. Pick any voice below to change it.</p>
+      )}
       {!error && <VoicePicker voices={shown} currentId={current} />}
       {!error && shown.length === 0 && <p className="muted">No voices matched. Try “Show all accents”.</p>}
     </div>

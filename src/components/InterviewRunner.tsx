@@ -7,6 +7,8 @@ import type { InterviewState, InterviewStep } from "@/lib/interview";
 import { closingLine, followupLine, introLine, questionLine } from "@/lib/interviewerScript";
 import AnswerInput, { type AnswerValue, emptyAnswer } from "./AnswerInput";
 import { AnamDriver, type AvatarDriver, type AvatarState, BrowserVoiceDriver, TestDriver } from "./avatar/drivers";
+import MicSetup from "./MicSetup";
+import { loadMicId } from "./mic";
 
 interface Props {
   initial: InterviewState;
@@ -89,6 +91,10 @@ export default function InterviewRunner({ initial, levelLabel, categoryLabels, a
   const [muted, setMuted] = useState(false);
   const [lastLine, setLastLine] = useState<string>("");
   const [handsFree, setHandsFree] = useState(true);
+  const [micId, setMicId] = useState<string | null>(null);
+  const [micOn, setMicOn] = useState(true);
+  const [micPanel, setMicPanel] = useState(false);
+  useEffect(() => setMicId(loadMicId()), []);
   const camera = useCamera();
   const left = useCountdown(state.deadline_at);
   const onBusyChange = useCallback((b: boolean) => setInputBusy(b), []);
@@ -301,13 +307,20 @@ export default function InterviewRunner({ initial, levelLabel, categoryLabels, a
                 a real video interview. Your video is only shown to you. It is never recorded, uploaded or scored.
               </p>
               {camera.error && <p className="alert small">{camera.error}</p>}
+              {voice && (
+                <div style={{ marginTop: 14 }}>
+                  <MicSetup deviceId={micId} onDeviceChange={setMicId} />
+                </div>
+              )}
             </div>
           </div>
           <ul className="small muted" style={{ marginTop: 14 }}>
             <li>
               {avatar.interviewerName} will ask each question out loud{videoMode ? " on video" : ""}; the question also appears as a caption.
             </li>
-            <li>{voice ? "Answer by recording your voice after the interviewer finishes speaking." : "Type each answer, then submit it."}</li>
+            <li>{voice
+                ? "Speak your answer after the interviewer finishes: listening starts automatically and your answer is submitted when you pause. Check your microphone above first."
+                : "Type each answer, then submit it."}</li>
             <li>Use headphones if you can, and make sure your sound is on.</li>
           </ul>
           <button className="btn" onClick={join} style={{ marginTop: 6 }}>
@@ -373,17 +386,32 @@ export default function InterviewRunner({ initial, levelLabel, categoryLabels, a
           <button className="ctl" onClick={toggleMute} aria-pressed={muted}>
             {muted ? "🔇 Interviewer muted" : "🔊 Interviewer sound"}
           </button>
-          <button className="ctl" onClick={() => lastLine && void say(lastLine)} disabled={speaking || inputBusy || !lastLine}>
+          {voice && (
+            <>
+              <button className={`ctl ${micOn ? "" : "off"}`} onClick={() => setMicOn(!micOn)} aria-pressed={micOn}>
+                {micOn ? "🎙 Mic on" : "🎙 Mic off"}
+              </button>
+              <button className="ctl" onClick={() => setMicPanel(!micPanel)} aria-expanded={micPanel}>
+                ⚙ Microphone
+              </button>
+            </>
+          )}
+          <button className="ctl" onClick={() => lastLine && void say(lastLine)} disabled={speaking || !lastLine}>
             ↻ Repeat
           </button>
           <button
             className="ctl danger"
             onClick={() => confirm("End the interview now? Unanswered questions will score 0.") && finish()}
-            disabled={busy || inputBusy}
+            disabled={busy}
           >
             End interview
           </button>
         </div>
+        {voice && micPanel && (
+          <div className="mic-panel">
+            <MicSetup deviceId={micId} onDeviceChange={setMicId} />
+          </div>
+        )}
       </div>
 
       {savedNote && (
@@ -423,6 +451,9 @@ export default function InterviewRunner({ initial, levelLabel, categoryLabels, a
             onBusyChange={onBusyChange}
             disabled={busy}
             recordingBlocked={speaking}
+            // Listening pauses while the interviewer talks (incl. Repeat) so its voice isn't transcribed.
+            micMuted={!micOn || speaking}
+            micDeviceId={micId}
             label={step.type === "followup" ? "Your follow-up answer" : "Your answer"}
             handsFree={voice && handsFree}
             autoStart={avatarState === "listening"}

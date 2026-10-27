@@ -1,5 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { AvatarUnavailableError, VOICE_SETTING, avatarClientConfig, avatarMedia, createAnamSessionToken, resetAvatarMediaCache, voiceId } from "@/lib/avatar";
+import {
+  AvatarUnavailableError,
+  VOICE_SETTING,
+  avatarClientConfig,
+  avatarMedia,
+  configuredVoiceId,
+  createAnamSessionToken,
+  pickAmericanVoice,
+  resetAvatarMediaCache,
+  resolveVoiceId,
+} from "@/lib/avatar";
 import { setSetting } from "@/lib/settings";
 import { freshEnv } from "./helpers";
 import { closingLine, introLine, questionLine } from "@/lib/interviewerScript";
@@ -16,6 +26,7 @@ afterEach(() => {
 describe("Anam session tokens", () => {
   it("requests a persona that only speaks our text and keeps no recordings", async () => {
     process.env.ANAM_API_KEY = "test-key";
+    process.env.ANAM_VOICE_ID = "11111111-1111-1111-1111-111111111111";
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ sessionToken: "jwt" }), { status: 200 }));
     expect(await createAnamSessionToken(fetchMock as unknown as typeof fetch)).toBe("jwt");
     const [url, init] = fetchMock.mock.calls[0];
@@ -54,16 +65,31 @@ describe("Anam session tokens", () => {
     expect((await avatarClientConfig()).idleMs).toBe(3_600_000);
   });
 
-  it("uses the voice chosen in settings, then ANAM_VOICE_ID, then the default", () => {
+  it("uses the voice chosen in settings, then ANAM_VOICE_ID", () => {
     delete process.env.ANAM_VOICE_ID;
-    const fallback = voiceId();
+    expect(configuredVoiceId()).toBeNull();
     process.env.ANAM_VOICE_ID = "env-voice";
-    expect(voiceId()).toBe("env-voice");
+    expect(configuredVoiceId()).toBe("env-voice");
     setSetting(VOICE_SETTING, "chosen-voice");
-    expect(voiceId()).toBe("chosen-voice");
-    setSetting(VOICE_SETTING, null);
+    expect(configuredVoiceId()).toBe("chosen-voice");
+  });
+
+  it("defaults to an American voice when none is configured", async () => {
     delete process.env.ANAM_VOICE_ID;
-    expect(voiceId()).toBe(fallback);
+    process.env.ANAM_API_KEY = "k";
+    const voices = [
+      { id: "gb-f", displayName: "Amelia", gender: "FEMALE", country: "GB" },
+      { id: "us-m", displayName: "Adam", gender: "MALE", country: "US" },
+      { id: "us-f", displayName: "Sarah", gender: "FEMALE", country: "US" },
+    ];
+    expect(pickAmericanVoice(voices as never)?.id).toBe("us-f");
+    expect(pickAmericanVoice([voices[0], voices[1]] as never)?.id).toBe("us-m");
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ data: voices, meta: { lastPage: 1 } })));
+    expect(await resolveVoiceId(fetchMock as unknown as typeof fetch)).toEqual({ id: "us-f", auto: true });
+    await resolveVoiceId(fetchMock as unknown as typeof fetch);
+    expect(fetchMock).toHaveBeenCalledTimes(1); // cached
+    setSetting(VOICE_SETTING, "chosen");
+    expect(await resolveVoiceId(fetchMock as unknown as typeof fetch)).toEqual({ id: "chosen", auto: false });
   });
 
   it("loads the avatar's idle loop and caches the signed URL", async () => {

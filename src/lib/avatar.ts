@@ -41,9 +41,35 @@ export function avatarId(): string {
   return process.env.ANAM_AVATAR_ID || DEFAULT_AVATAR_ID;
 }
 
-/** Voice chosen on the Interviewer settings page, else ANAM_VOICE_ID, else the default. */
-export function voiceId(): string {
-  return getSetting(VOICE_SETTING) || process.env.ANAM_VOICE_ID || DEFAULT_VOICE_ID;
+/** Voice explicitly chosen on the Interviewer settings page, else ANAM_VOICE_ID (null if neither). */
+export function configuredVoiceId(): string | null {
+  return getSetting(VOICE_SETTING) || process.env.ANAM_VOICE_ID || null;
+}
+
+let autoVoice: { at: number; id: string | null } | null = null;
+
+/** Picks an American English voice (female first, to suit the default "Cara" avatar). */
+export function pickAmericanVoice(voices: AnamVoice[]): AnamVoice | null {
+  const us = voices.filter((v) => v.country === "US").sort((a, b) => a.displayName.localeCompare(b.displayName));
+  return us.find((v) => v.gender === "FEMALE") ?? us[0] ?? null;
+}
+
+/**
+ * The voice used for new sessions: the configured one, else an automatically chosen
+ * American voice from the account's library, else Anam's example voice.
+ */
+export async function resolveVoiceId(fetchImpl: typeof fetch = fetch): Promise<{ id: string; auto: boolean }> {
+  const configured = configuredVoiceId();
+  if (configured) return { id: configured, auto: false };
+  if (!autoVoice || Date.now() - autoVoice.at > 6 * 60 * 60_000) {
+    try {
+      autoVoice = { at: Date.now(), id: pickAmericanVoice(await listAnamVoices(fetchImpl))?.id ?? null };
+    } catch (err) {
+      console.warn("[avatar] could not list voices to pick an American default:", err);
+      return { id: DEFAULT_VOICE_ID, auto: true };
+    }
+  }
+  return { id: autoVoice.id ?? DEFAULT_VOICE_ID, auto: true };
 }
 
 async function anamGet<T>(path: string, fetchImpl: typeof fetch = fetch): Promise<T> {
@@ -106,6 +132,7 @@ export async function getAnamVoice(id: string, fetchImpl: typeof fetch = fetch):
 /** Test hook. */
 export function resetAvatarMediaCache() {
   mediaCache = null;
+  autoVoice = null;
 }
 
 export async function avatarClientConfig(): Promise<AvatarClientConfig> {
@@ -123,14 +150,14 @@ export async function avatarClientConfig(): Promise<AvatarClientConfig> {
 
 export class AvatarUnavailableError extends Error {}
 
-export function anamSessionRequest() {
+export function anamSessionRequest(voice: string) {
   return {
     clientLabel: "tretechpro-interview-coach",
     personaConfig: {
       name: process.env.INTERVIEWER_NAME?.trim() || "Cara",
       avatarId: avatarId(),
       avatarModel: process.env.ANAM_AVATAR_MODEL || "cara-4",
-      voiceId: voiceId(),
+      voiceId: voice,
       // Disables Anam's built-in LLM: the persona only says what talk() sends.
       llmId: "CUSTOMER_CLIENT_V1",
       skipGreeting: true,
@@ -150,7 +177,7 @@ export async function createAnamSessionToken(fetchImpl: typeof fetch = fetch): P
   const res = await fetchImpl("https://api.anam.ai/v1/auth/session-token", {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
-    body: JSON.stringify(anamSessionRequest()),
+    body: JSON.stringify(anamSessionRequest((await resolveVoiceId(fetchImpl)).id)),
   });
   if (!res.ok) {
     const detail = (await res.text().catch(() => "")).slice(0, 300);

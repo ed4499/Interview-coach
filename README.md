@@ -68,13 +68,20 @@ controls.
 * **Voice and accent:** the **Interviewer settings** page (footer link, `/settings/interviewer`) lists
   the account's American voices (or all accents) with audio samples. "Use this voice" saves the choice
   in the database and new interviews use it immediately. Precedence: settings page, then
-  `ANAM_VOICE_ID`, then the default. Anyone who can sign in can change this; restrict the page
+  `ANAM_VOICE_ID`, then an automatically chosen American voice. Anyone who can sign in can change this; restrict the page
   before production.
 * **Hands-free voice answers** (voice mode, on by default, can be unticked): the mic opens when the
   interviewer finishes speaking. After 3.5 s without speech, a visible 3-second countdown starts
   ("Not done yet" / "Submit now"; talking again cancels it), then the answer submits and the
   interviewer continues. Nothing submits before the candidate has said something. Requires browser
   speech recognition (Chrome/Edge); elsewhere candidates record and submit manually.
+* **Microphone:** in voice mode the lobby has a microphone picker with a live level meter, and the call
+  has **Mic on/off** and **Microphone** controls. Recording and speech-to-text both use the chosen
+  device (`SpeechRecognition.start(track)`, Chrome/Edge 135+; older browsers use the default mic).
+  Listening pauses while the interviewer speaks. Speech-to-text errors are explained on screen,
+  including "we can hear you but no words are transcribed".
+* **Default voice:** if no voice is chosen, an American voice from the account's library is selected
+  automatically (female first, to match the default avatar).
 * **Fallback:** without a key, or if the video can't connect, the interviewer continues with the
   browser's built-in voice. The interview never stalls.
 * Voice answers can only start recording after the interviewer finishes speaking, so its voice isn't

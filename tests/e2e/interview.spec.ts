@@ -158,6 +158,10 @@ test("hands-free voice interview: listens automatically, transcribes, and submit
   await expect(page.getByRole("button", { name: "Start interview" })).toBeDisabled();
   await page.getByText(/I consent to TreTechPro.ai recording/).click();
   await page.getByRole("button", { name: "Start interview" }).click();
+  // Lobby: pick a microphone and see its level (Chromium's fake device plays a tone).
+  await expect(page.locator("#mic-select option").first()).toBeAttached();
+  await expect(page.getByText("✓ We can hear you.")).toBeVisible({ timeout: 10_000 });
+  await shot(page, "09a-mic-setup");
   await page.getByRole("button", { name: "Join interview" }).click();
 
   await expect(page.getByText("1 of 5")).toBeVisible();
@@ -172,8 +176,14 @@ test("hands-free voice interview: listens automatically, transcribes, and submit
   await expect(page.locator(".captions")).toHaveText("What specifically was your responsibility?");
   await expect(page.getByText("Follow-up:")).toBeVisible();
 
-  // End early: remaining questions are scored 0, recording is playable on the results page.
-  await page.getByRole("button", { name: /Stop listening/ }).click().catch(() => {});
+  // Mic toggle stops listening; turning it back on resumes.
+  await expect(page.getByRole("button", { name: /Stop listening/ })).toBeVisible();
+  await page.getByRole("button", { name: "🎙 Mic on" }).click();
+  await expect(page.getByRole("button", { name: /Mic is off/ })).toBeVisible();
+  await page.getByRole("button", { name: "🎙 Mic off" }).click();
+  await expect(page.getByRole("button", { name: /Stop listening/ })).toBeVisible();
+
+  // End early while listening: remaining questions score 0; the recording is playable on the results page.
   page.once("dialog", (d) => d.accept());
   await page.getByRole("button", { name: "End interview" }).click();
   await expect(page.getByText("Overall score / 100")).toBeVisible({ timeout: 60_000 });
