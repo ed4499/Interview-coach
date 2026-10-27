@@ -297,3 +297,20 @@ describe("history, progress, reports and deletion", () => {
     expect(fs.existsSync(file)).toBe(false);
   });
 });
+
+describe("switching answer mode mid-interview", () => {
+  it("turns on spoken answers only with consent, keeping earlier answers", async () => {
+    const { setResponseMode } = await import("@/lib/interview");
+    const s = createSession(CANDIDATE, { role: "IT Support", experience_level: "mid" });
+    await submitAnswer(s, { question_id: "01-B01", phase: "base", response_text: "Typed answer." });
+    expect(() => setResponseMode(requireSession(s.id, CANDIDATE), "voice", false)).toThrow(/consent/);
+    const st = setResponseMode(requireSession(s.id, CANDIDATE), "voice", true);
+    expect(st.response_mode).toBe("voice");
+    expect(st.consent_to_audio_recording).toBe(true);
+    const updated = requireSession(s.id, CANDIDATE);
+    expect(updated.response_mode).toBe("voice");
+    expect(() => saveAudio(updated, Buffer.from("x"), "audio/webm")).not.toThrow();
+    expect(getSessionDetail(updated).questions[0].attempts[0].response_text).toBe("Typed answer.");
+    expect(setResponseMode(updated, "text", undefined).response_mode).toBe("text");
+  });
+});

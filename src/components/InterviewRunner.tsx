@@ -120,6 +120,10 @@ export default function InterviewRunner({ initial, levelLabel, categoryLabels, a
   const [micId, setMicId] = useState<string | null>(null);
   const [micOn, setMicOn] = useState(true);
   const [micPanel, setMicPanel] = useState(false);
+  const [enableMicPanel, setEnableMicPanel] = useState(false);
+  const [micConsent, setMicConsent] = useState(false);
+  const [switching, setSwitching] = useState(false);
+  const [switchError, setSwitchError] = useState<string | null>(null);
   useEffect(() => setMicId(loadMicId()), []);
   const [speechSupport, setSpeechSupport] = useState<SpeechSupport>("checking");
   const [micReady, setMicReady] = useState(false);
@@ -269,6 +273,29 @@ export default function InterviewRunner({ initial, levelLabel, categoryLabels, a
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
       setFinishing(false);
+    }
+  }
+
+  /** Turn on spoken answers mid-interview (needs recording consent). */
+  async function enableMicrophone() {
+    setSwitching(true);
+    setSwitchError(null);
+    try {
+      const res = await fetch(`/api/sessions/${state.session_id}/response-mode`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ response_mode: "voice", consent_to_audio_recording: micConsent }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.saved) throw new Error(data.error ?? "The microphone could not be turned on.");
+      setState(data.state);
+      setEnableMicPanel(false);
+      setMicOn(true);
+      setMicPanel(true); // show the mic picker and level meter right away
+    } catch (err) {
+      setSwitchError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSwitching(false);
     }
   }
 
@@ -440,6 +467,11 @@ export default function InterviewRunner({ initial, levelLabel, categoryLabels, a
               </button>
             </>
           )}
+          {!voice && (
+            <button className="ctl" onClick={() => setEnableMicPanel(!enableMicPanel)} aria-expanded={enableMicPanel}>
+              🎙 Use microphone
+            </button>
+          )}
           <button className="ctl" onClick={() => lastLine && void say(lastLine)} disabled={speaking || !lastLine}>
             ↻ Repeat
           </button>
@@ -453,7 +485,24 @@ export default function InterviewRunner({ initial, levelLabel, categoryLabels, a
         </div>
         {voice && micPanel && (
           <div className="mic-panel">
-            <MicSetup deviceId={micId} onDeviceChange={setMicId} />
+            <MicSetup deviceId={micId} onDeviceChange={setMicId} onReady={() => setMicReady(true)} />
+            <SpeechCheck support={speechSupport} />
+          </div>
+        )}
+        {!voice && enableMicPanel && (
+          <div className="mic-panel">
+            <strong>Answer by speaking instead of typing</strong>
+            <label className="check" style={{ marginTop: 8 }}>
+              <input type="checkbox" checked={micConsent} onChange={(e) => setMicConsent(e.target.checked)} />
+              <span>
+                I consent to TreTechPro.ai recording my voice answers and transcribing them for evaluation. Recordings are stored with this
+                interview, are visible only to me, and are deleted when I delete the interview. Only the text transcript is evaluated.
+              </span>
+            </label>
+            {switchError && <p className="alert error small">{switchError}</p>}
+            <button className="btn small" style={{ marginTop: 8 }} disabled={!micConsent || switching} onClick={enableMicrophone}>
+              {switching ? "Turning on…" : "Turn on microphone"}
+            </button>
           </div>
         )}
       </div>

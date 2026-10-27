@@ -15,7 +15,8 @@ export default function SetupForm({ roles, levels, modes }: Props) {
   const [role, setRole] = useState("");
   const [level, setLevel] = useState("");
   const [mode, setMode] = useState("full");
-  const [responseMode, setResponseMode] = useState<"text" | "voice">("text");
+  // Spoken answers are the default for the video-call interview (overrides the config's "text" default in the UI).
+  const [responseMode, setResponseMode] = useState<"text" | "voice">("voice");
   const [consent, setConsent] = useState(false);
   const [timed, setTimed] = useState(false);
   const [minutes, setMinutes] = useState(45);

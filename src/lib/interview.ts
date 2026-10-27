@@ -320,6 +320,19 @@ function followupAllowed(s: SessionRow, remainingAfterThis: number): boolean {
   return msLeft > (remainingAfterThis + 1) * FOLLOWUP_MIN_MS_PER_REMAINING_QUESTION;
 }
 
+/**
+ * Switches between typed and spoken answers mid-interview. Spoken answers record audio,
+ * so turning them on requires the candidate's affirmative consent.
+ */
+export function setResponseMode(s: SessionRow, mode: unknown, consent: unknown): InterviewState {
+  if (s.status !== "in_progress") throw new ServiceError("This interview is no longer in progress.", 409);
+  if (mode !== "text" && mode !== "voice") throw new ServiceError("Response mode must be text or voice.");
+  const consented = mode === "voice" ? consent === true || !!s.consent_to_audio_recording : !!s.consent_to_audio_recording;
+  if (mode === "voice" && !consented) throw new ServiceError("Voice answers require your consent to record and transcribe audio.");
+  getDb().prepare(`UPDATE sessions SET response_mode = ?, consent_to_audio_recording = ? WHERE id = ?`).run(mode, consented ? 1 : 0, s.id);
+  return getInterviewState({ ...s, response_mode: mode, consent_to_audio_recording: consented ? 1 : 0 });
+}
+
 export async function submitAnswer(s: SessionRow, input: SubmitAnswerInput): Promise<InterviewState> {
   if (s.status !== "in_progress") throw new ServiceError("This interview is no longer in progress.", 409);
   const state = getInterviewState(s);

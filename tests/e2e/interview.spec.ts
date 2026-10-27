@@ -22,6 +22,9 @@ test("full 15-question text interview, results, retry, dashboard and report", as
   expect(roles.slice(1)).toHaveLength(17);
   await page.selectOption("#role", "Network Engineer");
   await page.getByText("Mid-Level").click();
+  // Spoken answers are preselected; this run uses typed answers.
+  await expect(page.getByRole("radio", { name: /Speak my answers/ })).toBeChecked();
+  await page.getByText("Type my answers").click();
   await shot(page, "02-setup");
   await page.getByRole("button", { name: "Start interview" }).click();
 
@@ -204,6 +207,7 @@ test("falls back to a voice-only interviewer when the video avatar can't connect
   await page.selectOption("#role", "Data Analyst");
   await page.getByText("Entry-Level").click();
   await page.getByText("Technical Scenarios (5 questions)").click();
+  await page.getByText("Type my answers").click();
   await page.getByRole("button", { name: "Start interview" }).click();
   await page.getByRole("button", { name: "Join interview" }).click();
   await expect(page.getByText(/continues with a voice-only interviewer/)).toBeVisible({ timeout: 30_000 });
@@ -258,4 +262,26 @@ test("warns up front when the browser can't transcribe speech (e.g. Opera) and f
   await page.locator("#answer").fill(STAR_ANSWER);
   await page.getByRole("button", { name: "Submit answer" }).click();
   await expect(page.getByText(/Answer saved/)).toBeVisible();
+});
+
+test("a typed interview can switch to spoken answers mid-interview (with consent)", async ({ page }) => {
+  await page.goto("/interview/new");
+  await page.selectOption("#role", "IT Support");
+  await page.getByText("Entry-Level").click();
+  await page.getByText("Behavioral STAR (5 questions)").click();
+  await page.getByText("Type my answers").click();
+  await page.getByRole("button", { name: "Start interview" }).click();
+  await page.getByRole("button", { name: "Join interview" }).click();
+  await expect(page.getByText("1 of 5")).toBeVisible();
+  await expect(page.getByRole("button", { name: /Mic on/ })).toHaveCount(0);
+  await page.getByRole("button", { name: "🎙 Use microphone" }).click();
+  await expect(page.getByRole("button", { name: "Turn on microphone" })).toBeDisabled();
+  await page.locator(".mic-panel").getByText(/I consent/).click();
+  await page.getByRole("button", { name: "Turn on microphone" }).click();
+  // Full mic controls appear, with the picker and level meter open.
+  await expect(page.getByRole("button", { name: "🎙 Mic on" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "⚙ Microphone" })).toBeVisible();
+  await expect(page.locator("#mic-select")).toBeVisible();
+  await expect(page.getByRole("checkbox", { name: /Hands-free/ })).toBeVisible();
+  await shot(page, "14-switch-to-voice");
 });

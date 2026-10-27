@@ -80,6 +80,9 @@ controls.
   device (`SpeechRecognition.start(track)`, Chrome/Edge 135+; older browsers use the default mic).
   Listening pauses while the interviewer speaks. Speech-to-text errors are explained on screen,
   including "we can hear you but no words are transcribed".
+* **Spoken answers by default:** the setup page preselects "Speak my answers" (the JSON config's
+  `response_mode` default of `text` still applies to API callers). A typed interview can switch to
+  spoken answers mid-interview with **🎙 Use microphone**, which asks for recording consent first.
 * **Browser support for spoken answers:** speech-to-text uses the browser's service, which works in
   Google Chrome and Microsoft Edge. The setup page warns in other browsers, and the lobby runs a quick
   check. If transcription isn't available (e.g. Opera, Brave, Firefox), the candidate is told to switch
