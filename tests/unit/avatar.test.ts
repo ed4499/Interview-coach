@@ -6,7 +6,6 @@ import {
   avatarMedia,
   configuredVoiceId,
   createAnamSessionToken,
-  pickAmericanVoice,
   resetAvatarMediaCache,
   resolveVoiceId,
 } from "@/lib/avatar";
@@ -74,29 +73,11 @@ describe("Anam session tokens", () => {
     expect(configuredVoiceId()).toBe("chosen-voice");
   });
 
-  it("defaults to an American voice when none is configured", async () => {
+  it("defaults to Julia (American) unless a voice is chosen", async () => {
     delete process.env.ANAM_VOICE_ID;
-    process.env.ANAM_API_KEY = "k";
-    const voices = [
-      { id: "gb-f", displayName: "Amelia", gender: "FEMALE", country: "GB" },
-      { id: "us-m", displayName: "Adam", gender: "MALE", country: "US" },
-      { id: "us-f", displayName: "Sarah", gender: "FEMALE", country: "US" },
-    ];
-    expect(pickAmericanVoice(voices as never)?.id).toBe("us-f");
-    expect(pickAmericanVoice([voices[0], voices[1]] as never)?.id).toBe("us-m");
-    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ data: voices, meta: { lastPage: 1 } })));
-    expect(await resolveVoiceId(fetchMock as unknown as typeof fetch)).toEqual({ id: "us-f", source: "auto-american" });
-    await resolveVoiceId(fetchMock as unknown as typeof fetch);
-    expect(fetchMock).toHaveBeenCalledTimes(1); // cached
+    expect(await resolveVoiceId()).toEqual({ id: "109ecf2e-93c4-40df-9555-328c4a5f0c97", source: "default" });
     setSetting(VOICE_SETTING, "chosen");
-    expect(await resolveVoiceId(fetchMock as unknown as typeof fetch)).toEqual({ id: "chosen", source: "chosen" });
-  });
-
-  it("reports the British default honestly when Anam labels no voice as American", async () => {
-    delete process.env.ANAM_VOICE_ID;
-    process.env.ANAM_API_KEY = "k";
-    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ data: [{ id: "x", displayName: "X", country: null }], meta: { lastPage: 1 } })));
-    expect(await resolveVoiceId(fetchMock as unknown as typeof fetch)).toEqual({ id: "6bfbe25a-979d-40f3-a92b-5394170af54b", source: "default" });
+    expect(await resolveVoiceId()).toEqual({ id: "chosen", source: "chosen" });
   });
 
   it("offers Anam's stock voices even when the API omits them", async () => {

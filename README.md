@@ -67,8 +67,7 @@ controls.
   listening without keeping a billed live session open.
 * **Voice and accent:** the **Interviewer settings** page (footer link, `/settings/interviewer`) lists
   the account's American voices (or all accents) with audio samples. "Use this voice" saves the choice
-  in the database and new interviews use it immediately. Precedence: settings page, then
-  `ANAM_VOICE_ID`, then an automatically chosen American voice. Anyone who can sign in can change this; restrict the page
+  in the database and new interviews use it immediately. Anyone who can sign in can change this; restrict the page
   before production.
 * **Hands-free voice answers** (voice mode, on by default, can be unticked): the mic opens when the
   interviewer finishes speaking. After 3.5 s without speech, a visible 3-second countdown starts
@@ -88,10 +87,9 @@ controls.
   check. If transcription isn't available (e.g. Opera, Brave, Firefox), the candidate is told to switch
   browsers or type; hands-free starts off and recordings are still saved. *Planned:* server-side
   speech-to-text so voice answers work in every browser.
-* **Default voice:** if no voice is chosen, the app uses a voice Anam labels as American (female first).
-  If none is labeled, it uses Anam's original default "Cara", which is British; the settings page
-  says so and lists Anam's 18 standard voices (`src/lib/anamVoiceCatalog.ts`) with samples to choose
-  by ear.
+* **Default voice:** "Julia" from Anam's standard voices (replacing Anam's example voice "Cara",
+  which is British). The settings page lists all 18 standard voices (`src/lib/anamVoiceCatalog.ts`)
+  plus any in the account, with samples. Precedence: settings page, then `ANAM_VOICE_ID`, then Julia.
 * **Fallback:** without a key, or if the video can't connect, the interviewer continues with the
   browser's built-in voice. The interview never stalls.
 * Voice answers can only start recording after the interviewer finishes speaking, so its voice isn't

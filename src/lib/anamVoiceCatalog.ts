@@ -6,7 +6,7 @@
 import type { AnamVoice } from "./avatar";
 
 const STOCK: [id: string, name: string, note?: string][] = [
-  ["6bfbe25a-979d-40f3-a92b-5394170af54b", "Cara", "British accent (the original default)"],
+  ["6bfbe25a-979d-40f3-a92b-5394170af54b", "Cara", "British accent"],
   ["b7274f87-8b72-4c5b-bf52-954768b28c75", "Leo"],
   ["4bdb224b-0342-4986-9831-69a1f059103d", "Liv"],
   ["04965b9e-ff4c-4b54-a4dc-fba6e458c760", "Astrid"],
@@ -18,7 +18,7 @@ const STOCK: [id: string, name: string, note?: string][] = [
   ["df2aec93-4b4e-41f2-8d02-b2d615ce184a", "Mia"],
   ["f01404e8-d9ab-4aa1-bcba-265776c9ebbc", "Layla"],
   ["13ba97ac-88e3-454f-8a49-6f9479dd4586", "Kevin"],
-  ["109ecf2e-93c4-40df-9555-328c4a5f0c97", "Julia"],
+  ["109ecf2e-93c4-40df-9555-328c4a5f0c97", "Julia", "The app's default voice"],
   ["e4531dd3-6e63-4103-ab4a-9bd5b8c8aeed", "Hunter"],
   ["8246d9f7-827e-4a5c-8697-644ce860ca02", "Gabriel"],
   ["615ad2e8-c34a-4993-8aa3-36fd4dc3a876", "Finn"],

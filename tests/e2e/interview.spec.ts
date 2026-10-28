@@ -286,18 +286,20 @@ test("a typed interview can switch to spoken answers mid-interview (with consent
   await shot(page, "14-switch-to-voice");
 });
 
-test("interviewer settings: shows the current (British) default and lets you pick another voice by ear", async ({ page }) => {
+test("interviewer settings: shows the default voice (Julia) and lets you pick another by ear", async ({ page }) => {
   const base = "http://localhost:3101"; // video interviewer enabled (invalid key, so only standard voices load)
-  // Start from the automatic default, whatever an earlier run chose.
+  // Start from the default, whatever an earlier run chose.
   expect((await page.request.post(`${base}/api/settings/interviewer`, { data: { voiceId: null } })).ok()).toBe(true);
   await page.goto(`${base}/settings/interviewer`);
-  await expect(page.getByText("Current voice: Cara")).toBeVisible();
-  await expect(page.getByText(/original default voice, which has a British accent/)).toBeVisible();
-  await expect(page.locator(".voice-card audio")).toHaveCount(18);
-  const julia = page.locator(".voice-card", { hasText: "Julia" });
-  await julia.getByRole("button", { name: "Use this voice" }).click();
-  await expect(page.getByText(/New interviews will use “Julia”/)).toBeVisible();
   await expect(page.getByText("Current voice: Julia")).toBeVisible();
-  await expect(page.getByText(/Chosen on this page/)).toBeVisible();
+  await expect(page.getByText(/This is the app.s default voice/)).toBeVisible();
+  await expect(page.locator(".voice-card", { hasText: "Cara" })).toContainText("British accent");
+  await expect(page.locator(".voice-card audio")).toHaveCount(18);
+  const hunter = page.locator(".voice-card", { hasText: "Hunter" });
+  await hunter.getByRole("button", { name: "Use this voice" }).click();
+  await expect(page.getByText(/New interviews will use “Hunter”/)).toBeVisible();
+  await expect(page.getByText("Current voice: Hunter")).toBeVisible();
+  await page.getByRole("button", { name: "Reset to default voice (Julia)" }).click();
+  await expect(page.getByText("Current voice: Julia")).toBeVisible();
   await shot(page, "15-voice-settings");
 });

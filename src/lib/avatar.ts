@@ -30,7 +30,9 @@ const ANAM_API = "https://api.anam.ai";
 
 // Defaults from Anam's documented example persona ("Cara"); override with your own avatar/voice.
 const DEFAULT_AVATAR_ID = "30fa96d0-26c4-4e55-94a0-517025942e18";
-const DEFAULT_VOICE_ID = "6bfbe25a-979d-40f3-a92b-5394170af54b";
+// "Julia" from Anam's standard voices, chosen to replace the docs' example voice "Cara" (British).
+// Change it on the Interviewer settings page or with ANAM_VOICE_ID.
+const DEFAULT_VOICE_ID = "109ecf2e-93c4-40df-9555-328c4a5f0c97";
 
 function intEnv(name: string, fallback: number, min: number, max: number): number {
   const n = Number(process.env[name]);
@@ -46,32 +48,12 @@ export function configuredVoiceId(): string | null {
   return getSetting(VOICE_SETTING) || process.env.ANAM_VOICE_ID || null;
 }
 
-let autoVoice: { at: number; id: string | null } | null = null;
+export type VoiceSource = "chosen" | "default";
 
-/** Picks an American English voice (female first, to suit the default "Cara" avatar). */
-export function pickAmericanVoice(voices: AnamVoice[]): AnamVoice | null {
-  const us = voices.filter((v) => v.country === "US").sort((a, b) => a.displayName.localeCompare(b.displayName));
-  return us.find((v) => v.gender === "FEMALE") ?? us[0] ?? null;
-}
-
-export type VoiceSource = "chosen" | "auto-american" | "default";
-
-/**
- * The voice used for new sessions: the configured one, else an American voice from the
- * account's library (if Anam labels any as US), else Anam's original default (British).
- */
-export async function resolveVoiceId(fetchImpl: typeof fetch = fetch): Promise<{ id: string; source: VoiceSource }> {
+/** The voice used for new sessions: the one chosen in settings or the environment, else the app default. */
+export async function resolveVoiceId(): Promise<{ id: string; source: VoiceSource }> {
   const configured = configuredVoiceId();
-  if (configured) return { id: configured, source: "chosen" };
-  if (!autoVoice || Date.now() - autoVoice.at > 6 * 60 * 60_000) {
-    try {
-      autoVoice = { at: Date.now(), id: pickAmericanVoice(await listAnamVoices(fetchImpl))?.id ?? null };
-    } catch (err) {
-      console.warn("[avatar] could not list voices to pick an American default:", err);
-      return { id: DEFAULT_VOICE_ID, source: "default" };
-    }
-  }
-  return autoVoice.id ? { id: autoVoice.id, source: "auto-american" } : { id: DEFAULT_VOICE_ID, source: "default" };
+  return configured ? { id: configured, source: "chosen" } : { id: DEFAULT_VOICE_ID, source: "default" };
 }
 
 async function anamGet<T>(path: string, fetchImpl: typeof fetch = fetch): Promise<T> {
@@ -134,7 +116,6 @@ export async function getAnamVoice(id: string, fetchImpl: typeof fetch = fetch):
 /** Test hook. */
 export function resetAvatarMediaCache() {
   mediaCache = null;
-  autoVoice = null;
 }
 
 export async function avatarClientConfig(): Promise<AvatarClientConfig> {
@@ -179,7 +160,7 @@ export async function createAnamSessionToken(fetchImpl: typeof fetch = fetch): P
   const res = await fetchImpl("https://api.anam.ai/v1/auth/session-token", {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
-    body: JSON.stringify(anamSessionRequest((await resolveVoiceId(fetchImpl)).id)),
+    body: JSON.stringify(anamSessionRequest((await resolveVoiceId()).id)),
   });
   if (!res.ok) {
     const detail = (await res.text().catch(() => "")).slice(0, 300);

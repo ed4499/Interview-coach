@@ -42,8 +42,7 @@ export default async function InterviewerSettings() {
         <strong>Current voice: {currentVoice?.displayName ?? "Custom voice"}</strong>
         <div className="muted small">
           {source === "chosen" && "Chosen on this page (or set in the server environment)."}
-          {source === "auto-american" && "Selected automatically because Anam labels it as an American voice."}
-          {source === "default" && "This is Anam's original default voice, which has a British accent. Pick a voice below to change it."}
+          {source === "default" && "This is the app's default voice. Pick a voice below to change it."}
         </div>
       </div>
 
