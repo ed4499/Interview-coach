@@ -214,8 +214,8 @@ export default async function Dashboard() {
                         </Link>
                       )}
                       {s.status === "completed" && (
-                        <a className="btn ghost small" href={`/api/sessions/${s.session_id}/report?format=html`} target="_blank" rel="noopener">
-                          Report
+                        <a className="btn ghost small" href={`/api/sessions/${s.session_id}/report`} download>
+                          PDF
                         </a>
                       )}
                       <DeleteSessionButton sessionId={s.session_id} />

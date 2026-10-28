@@ -30,9 +30,16 @@ const ANAM_API = "https://api.anam.ai";
 
 // Defaults from Anam's documented example persona ("Cara"); override with your own avatar/voice.
 const DEFAULT_AVATAR_ID = "30fa96d0-26c4-4e55-94a0-517025942e18";
-// "Julia" from Anam's standard voices, chosen to replace the docs' example voice "Cara" (British).
-// Change it on the Interviewer settings page or with ANAM_VOICE_ID.
-const DEFAULT_VOICE_ID = "109ecf2e-93c4-40df-9555-328c4a5f0c97";
+// "Sophie" from Anam's standard voices, chosen by the client (the docs' example voice "Cara" is British).
+const DEFAULT_VOICE_ID = "1c6fa8a7-9aa4-4a17-a75e-3e5eb863fccf";
+
+/**
+ * The Interviewer settings page (voice picker) is hidden unless ENABLE_VOICE_SETTINGS=true.
+ * While hidden, a voice saved there earlier is ignored, so the default (or ANAM_VOICE_ID) is used.
+ */
+export function voiceSettingsEnabled(): boolean {
+  return process.env.ENABLE_VOICE_SETTINGS === "true";
+}
 
 function intEnv(name: string, fallback: number, min: number, max: number): number {
   const n = Number(process.env[name]);
@@ -45,7 +52,7 @@ export function avatarId(): string {
 
 /** Voice explicitly chosen on the Interviewer settings page, else ANAM_VOICE_ID (null if neither). */
 export function configuredVoiceId(): string | null {
-  return getSetting(VOICE_SETTING) || process.env.ANAM_VOICE_ID || null;
+  return (voiceSettingsEnabled() ? getSetting(VOICE_SETTING) : null) || process.env.ANAM_VOICE_ID || null;
 }
 
 export type VoiceSource = "chosen" | "default";

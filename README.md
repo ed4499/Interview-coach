@@ -65,10 +65,14 @@ controls.
 * **Natural idling:** while the candidate answers, the tile plays the avatar's official idle loop
   (Anam `idleVideoUrl`, refreshed every 30 minutes), so the interviewer blinks and moves like a person
   listening without keeping a billed live session open.
-* **Voice and accent:** the **Interviewer settings** page (footer link, `/settings/interviewer`) lists
-  the account's American voices (or all accents) with audio samples. "Use this voice" saves the choice
-  in the database and new interviews use it immediately. Anyone who can sign in can change this; restrict the page
-  before production.
+* **Voice:** the default is "Sophie" from Anam's standard voices (Anam's example voice "Cara" is
+  British). `ANAM_VOICE_ID` overrides it.
+* **Voice picker (hidden by default):** set `ENABLE_VOICE_SETTINGS=true` to show the **Interviewer
+  settings** page (footer link, `/settings/interviewer`). It lists Anam's 18 standard voices
+  (`src/lib/anamVoiceCatalog.ts`) plus any in the account, with samples, and saves a choice that new
+  interviews use immediately. While the flag is off, the page and its save endpoint return 404 and any
+  saved choice is ignored. Anyone who can sign in can use the page when it's on, so keep it off in
+  production.
 * **Hands-free voice answers** (voice mode, on by default, can be unticked): the mic opens when the
   interviewer finishes speaking. After 3.5 s without speech, a visible 3-second countdown starts
   ("Not done yet" / "Submit now"; talking again cancels it), then the answer submits and the
@@ -87,9 +91,6 @@ controls.
   check. If transcription isn't available (e.g. Opera, Brave, Firefox), the candidate is told to switch
   browsers or type; hands-free starts off and recordings are still saved. *Planned:* server-side
   speech-to-text so voice answers work in every browser.
-* **Default voice:** "Julia" from Anam's standard voices (replacing Anam's example voice "Cara",
-  which is British). The settings page lists all 18 standard voices (`src/lib/anamVoiceCatalog.ts`)
-  plus any in the account, with samples. Precedence: settings page, then `ANAM_VOICE_ID`, then Julia.
 * **Fallback:** without a key, or if the video can't connect, the interviewer continues with the
   browser's built-in voice. The interview never stalls.
 * Voice answers can only start recording after the interviewer finishes speaking, so its voice isn't
@@ -105,7 +106,7 @@ Code: `src/lib/avatar.ts` (config + session tokens), `src/app/api/sessions/[id]/
 Setup ─► Interview (one question at a time, ≤1 neutral follow-up each, no scores shown)
       ─► Finish ─► Evaluation (per question, per rubric) ─► Coaching summary (3 priorities)
       ─► Results ─► Retry any question (new attempt, same rubric) ─► Original vs retry comparison
-      ─► Dashboard (history, trends, gaps, recommendations) · Reports (HTML/PDF, JSON)
+      ─► Dashboard (history, trends, gaps, recommendations) · PDF report download
 ```
 
 * **Claude proposes, code computes.** For each answer Claude returns per-dimension scores (0–100) with
@@ -140,7 +141,7 @@ Setup ─► Interview (one question at a time, ≤1 neutral follow-up each, no 
 | `response_storage_schema` | `attempts` table: question id + exact text, verbatim response, raw transcript, audio ref, follow-up Q/A, attempt number, timestamps, consent |
 | `retry_and_coaching` (flow, retry_limit, comparison_rule) | Retry page follows the five flow steps; `retry_limit: null` = unlimited; trends only compare same role + level + rubric version |
 | `retry_and_coaching.progress_metrics` | `src/lib/progress.ts` (one field per metric) → dashboard |
-| `report_spec` (sections, formats, privacy) | `src/lib/report.ts`: all 9 sections; JSON, printable HTML, PDF via the browser's Save as PDF |
+| `report_spec` (sections, formats, privacy) | `src/lib/report.ts`: all 9 sections in a server-generated PDF (pdfkit). By the client's decision, PDF is the only download offered (no JSON or HTML) |
 | `features.*` | All enabled features are implemented (see the requirement map below) |
 
 ## Development instructions (PDF) → status
@@ -170,7 +171,7 @@ Setup ─► Interview (one question at a time, ≤1 neutral follow-up each, no 
 | Consistent structured scoring | `evaluator.test.ts` (strict schema, rejects missing/foreign dimensions, clamps, deterministic weighting) |
 | Retries don't overwrite originals | `interview.test.ts` (new attempt rows; a DB trigger rejects any UPDATE of a saved response) |
 | History and progress tracking | `interview.test.ts` (comparison groups, STAR trends, gaps, retry improvement), e2e dashboard |
-| Reports show correct scores and feedback | `interview.test.ts` (HTML + JSON content, HTML escaping), e2e report |
+| Reports show correct scores and feedback | `interview.test.ts` (PDF content), e2e (PDF download; legacy JSON/HTML formats not served) |
 
 ## Integrating into the existing TreTechPro.ai site
 
@@ -214,7 +215,8 @@ that duration; the SQLite file and audio directory need persistent disk.
   Firefox). Elsewhere the recording is still saved and the candidate types the answer. For
   consistent cross-browser transcription, add a server-side speech-to-text service behind the
   existing audio upload endpoint.
-* PDF reports are produced with the browser's "Save as PDF" from the printable report.
+* Recording playback hides the browser's download option (`controlsList="nodownload"`), which deters but
+  can't fully prevent saving audio a candidate can already hear.
 
 ## Project layout
 
@@ -227,7 +229,7 @@ src/lib/db.ts             SQLite schema + bank import
 src/lib/interview.ts      workflow service: sessions, answers, follow-ups, evaluation, retries, audio
 src/lib/scoring.ts        deterministic weighted scoring
 src/lib/progress.ts       dashboard metrics
-src/lib/report.ts         JSON + printable HTML reports
+src/lib/report.ts         PDF report (pdfkit)
 src/lib/ai/               Claude client, prompts, schemas, test-mode evaluator
 src/app/                  pages + API routes
 src/components/           UI components (setup, runner, voice input, results, chart)

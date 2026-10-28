@@ -1,12 +1,13 @@
 import { NextResponse } from "next/server";
 import { handler, readJson } from "@/lib/api";
-import { AvatarUnavailableError, VOICE_SETTING, getAnamVoice } from "@/lib/avatar";
+import { AvatarUnavailableError, VOICE_SETTING, getAnamVoice, voiceSettingsEnabled } from "@/lib/avatar";
 import { ServiceError } from "@/lib/interview";
 import { setSetting } from "@/lib/settings";
 import { STOCK_VOICES } from "@/lib/anamVoiceCatalog";
 
 /** Saves the interviewer voice (an Anam voice id), or resets it with { voiceId: null }. */
 export const POST = handler(async (req: Request) => {
+  if (!voiceSettingsEnabled()) throw new ServiceError("Not found.", 404);
   const { voiceId } = await readJson(req);
   if (voiceId === null) {
     setSetting(VOICE_SETTING, null);

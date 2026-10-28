@@ -33,6 +33,7 @@ export default defineConfig({
         INTERVIEW_AI_MODE: "test",
         AVATAR_PROVIDER: "anam",
         ANAM_API_KEY: "invalid-test-key",
+        ENABLE_VOICE_SETTINGS: "true",
         DATABASE_PATH: "var/e2e/e2e-anam.sqlite",
         AUDIO_STORAGE_DIR: "var/e2e/audio-anam",
       },

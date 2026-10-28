@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { isTestMode } from "@/lib/ai";
+import { voiceSettingsEnabled } from "@/lib/avatar";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -31,11 +32,13 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <main>
           <div className="container">{children}</div>
         </main>
-        <footer className="site-footer">
-          <div className="container">
-            <Link href="/settings/interviewer">Interviewer settings</Link>
-          </div>
-        </footer>
+        {voiceSettingsEnabled() && (
+          <footer className="site-footer">
+            <div className="container">
+              <Link href="/settings/interviewer">Interviewer settings</Link>
+            </div>
+          </footer>
+        )}
       </body>
     </html>
   );

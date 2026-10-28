@@ -65,6 +65,7 @@ describe("Anam session tokens", () => {
   });
 
   it("uses the voice chosen in settings, then ANAM_VOICE_ID", () => {
+    process.env.ENABLE_VOICE_SETTINGS = "true";
     delete process.env.ANAM_VOICE_ID;
     expect(configuredVoiceId()).toBeNull();
     process.env.ANAM_VOICE_ID = "env-voice";
@@ -73,10 +74,13 @@ describe("Anam session tokens", () => {
     expect(configuredVoiceId()).toBe("chosen-voice");
   });
 
-  it("defaults to Julia (American) unless a voice is chosen", async () => {
+  it("defaults to Sophie; a saved voice applies only while voice settings are enabled", async () => {
     delete process.env.ANAM_VOICE_ID;
-    expect(await resolveVoiceId()).toEqual({ id: "109ecf2e-93c4-40df-9555-328c4a5f0c97", source: "default" });
+    delete process.env.ENABLE_VOICE_SETTINGS;
+    expect(await resolveVoiceId()).toEqual({ id: "1c6fa8a7-9aa4-4a17-a75e-3e5eb863fccf", source: "default" });
     setSetting(VOICE_SETTING, "chosen");
+    expect((await resolveVoiceId()).id).toBe("1c6fa8a7-9aa4-4a17-a75e-3e5eb863fccf"); // hidden: ignored
+    process.env.ENABLE_VOICE_SETTINGS = "true";
     expect(await resolveVoiceId()).toEqual({ id: "chosen", source: "chosen" });
   });
 

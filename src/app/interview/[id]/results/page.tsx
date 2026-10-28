@@ -27,14 +27,8 @@ export default async function ResultsPage({ params }: { params: Promise<{ id: st
       </div>
       {s.status === "completed" && (
         <div className="row">
-          <a className="btn secondary small" href={`/api/sessions/${id}/report?format=html`} target="_blank" rel="noopener">
-            Printable report / PDF
-          </a>
-          <a className="btn secondary small" href={`/api/sessions/${id}/report?format=html&download=1`}>
-            Download HTML
-          </a>
-          <a className="btn secondary small" href={`/api/sessions/${id}/report?format=json`}>
-            Download JSON
+          <a className="btn secondary small" href={`/api/sessions/${id}/report`} download>
+            Download PDF report
           </a>
         </div>
       )}

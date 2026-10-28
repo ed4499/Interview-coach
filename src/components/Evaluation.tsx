@@ -90,7 +90,7 @@ export function ResponseBlock({ a }: { a: AttemptView }) {
   return (
     <>
       <blockquote className="response">{a.response_text}</blockquote>
-      {a.audio_uri && <audio controls preload="none" src={a.audio_uri} style={{ width: "100%", maxWidth: 420 }} />}
+      {a.audio_uri && <audio controls controlsList="nodownload" preload="none" src={a.audio_uri} style={{ width: "100%", maxWidth: 420 }} />}
       {a.followup_text && (
         <div className="followup" style={{ marginTop: 8 }}>
           <strong>Follow-up:</strong> {a.followup_text}

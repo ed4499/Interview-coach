@@ -1,4 +1,5 @@
-import { type AnamVoice, avatarClientConfig, listAnamVoices, resolveVoiceId } from "@/lib/avatar";
+import { notFound } from "next/navigation";
+import { type AnamVoice, avatarClientConfig, listAnamVoices, resolveVoiceId, voiceSettingsEnabled } from "@/lib/avatar";
 import { mergeVoices } from "@/lib/anamVoiceCatalog";
 import VoicePicker from "@/components/VoicePicker";
 
@@ -7,6 +8,7 @@ export const dynamic = "force-dynamic";
 const byName = (a: AnamVoice, b: AnamVoice) => (a.gender ?? "").localeCompare(b.gender ?? "") || a.displayName.localeCompare(b.displayName);
 
 export default async function InterviewerSettings() {
+  if (!voiceSettingsEnabled()) notFound();
   const cfg = await avatarClientConfig();
   if (cfg.provider !== "anam") {
     return (

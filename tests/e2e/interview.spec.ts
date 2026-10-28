@@ -89,21 +89,20 @@ test("full 15-question text interview, results, retry, dashboard and report", as
   await expect(page.getByText("Retry #1").first()).toBeVisible();
   expect(Number(await page.locator("details.q").first().locator("summary .score-pill").textContent())).toBe(firstScore);
 
-  const report = await page.request.get(page.url().replace("/results", "").replace("/interview/", "/api/sessions/") + "/report?format=json");
-  expect(report.ok()).toBe(true);
-  const json = await report.json();
-  expect(json.questions).toHaveLength(15);
-  expect(json.questions[0].attempts).toHaveLength(2);
-  expect(json.questions[0].attempts[0].response_text).toBe("I fixed a network outage.");
-  expect(json.questions[0].attempts[0].followup_response_text).toMatch(/owned the outage ticket/);
-  expect(json.coaching.coaching_actions).toHaveLength(3);
-
-  const reportPage = await page.context().newPage();
-  await reportPage.goto(page.url().replace("/results", "").replace("/interview/", "/api/sessions/") + "/report?format=html");
-  await expect(reportPage.getByText("Top three improvement priorities")).toBeVisible();
-  await expect(reportPage.getByText("Retry comparison and session history")).toBeVisible();
-  await shot(reportPage, "07-report");
-  await reportPage.close();
+  // Reports: a PDF download is the only format offered.
+  await expect(page.getByRole("link", { name: /JSON|HTML|Printable/ })).toHaveCount(0);
+  const [download] = await Promise.all([page.waitForEvent("download"), page.getByRole("link", { name: "Download PDF report" }).click()]);
+  expect(download.suggestedFilename()).toMatch(/^interview-report-network-engineer-.*\.pdf$/);
+  const pdfPath = await download.path();
+  const pdf = fs.readFileSync(pdfPath!);
+  expect(pdf.subarray(0, 5).toString()).toBe("%PDF-");
+  expect(pdf.length).toBeGreaterThan(10_000);
+  if (SHOTS) fs.copyFileSync(pdfPath!, `${SHOTS}/07-report.pdf`);
+  const reportUrl = page.url().replace("/results", "").replace("/interview/", "/api/sessions/") + "/report";
+  for (const legacy of ["?format=json", "?format=html", "?format=html&download=1"]) {
+    const r = await page.request.get(reportUrl + legacy);
+    expect(r.headers()["content-type"]).toBe("application/pdf");
+  }
 
   await page.goto("/");
   await expect(page.getByText("Your interview dashboard")).toBeVisible();
@@ -120,8 +119,10 @@ test("full 15-question text interview, results, retry, dashboard and report", as
   await page.waitForURL(/\/results$/);
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
   await shot(page, "11-results-mobile");
-  await page.getByRole("link", { name: "Interviewer settings" }).click();
-  await expect(page.getByText(/isn't enabled/)).toBeVisible();
+  // Voice settings are hidden by default: no link, page or save endpoint.
+  await expect(page.getByRole("link", { name: "Interviewer settings" })).toHaveCount(0);
+  expect((await page.request.get("/settings/interviewer")).status()).toBe(404);
+  expect((await page.request.post("/api/settings/interviewer", { data: { voiceId: null } })).status()).toBe(404);
 });
 
 test("hands-free voice interview: listens automatically, transcribes, and submits after a pause", async ({ page }) => {
@@ -286,12 +287,12 @@ test("a typed interview can switch to spoken answers mid-interview (with consent
   await shot(page, "14-switch-to-voice");
 });
 
-test("interviewer settings: shows the default voice (Julia) and lets you pick another by ear", async ({ page }) => {
+test("interviewer settings (when enabled): shows the default voice (Sophie) and lets you pick another by ear", async ({ page }) => {
   const base = "http://localhost:3101"; // video interviewer enabled (invalid key, so only standard voices load)
   // Start from the default, whatever an earlier run chose.
   expect((await page.request.post(`${base}/api/settings/interviewer`, { data: { voiceId: null } })).ok()).toBe(true);
   await page.goto(`${base}/settings/interviewer`);
-  await expect(page.getByText("Current voice: Julia")).toBeVisible();
+  await expect(page.getByText("Current voice: Sophie")).toBeVisible();
   await expect(page.getByText(/This is the app.s default voice/)).toBeVisible();
   await expect(page.locator(".voice-card", { hasText: "Cara" })).toContainText("British accent");
   await expect(page.locator(".voice-card audio")).toHaveCount(18);
@@ -299,7 +300,7 @@ test("interviewer settings: shows the default voice (Julia) and lets you pick an
   await hunter.getByRole("button", { name: "Use this voice" }).click();
   await expect(page.getByText(/New interviews will use “Hunter”/)).toBeVisible();
   await expect(page.getByText("Current voice: Hunter")).toBeVisible();
-  await page.getByRole("button", { name: "Reset to default voice (Julia)" }).click();
-  await expect(page.getByText("Current voice: Julia")).toBeVisible();
+  await page.getByRole("button", { name: "Reset to default voice (Sophie)" }).click();
+  await expect(page.getByText("Current voice: Sophie")).toBeVisible();
   await shot(page, "15-voice-settings");
 });

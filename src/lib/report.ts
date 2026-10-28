@@ -1,179 +1,338 @@
 /**
- * Downloadable evaluation reports (report_spec formats: json, printable_html, and PDF
- * via the browser's "Save as PDF" on the printable HTML).
+ * The candidate's downloadable evaluation report: a PDF generated on the server
+ * (PDF is the only download format offered to candidates).
  */
+import PDFDocument from "pdfkit";
 import { CATEGORY_LABELS, type Category, LEVEL_LABELS, getConfig } from "./config";
-import type { SessionDetail } from "./interview";
+import type { AttemptView, EvaluationView, SessionDetail } from "./interview";
 import type { SessionPoint } from "./progress";
-import { escapeHtml as e, outlineToHtml } from "./markdown";
 
-export function reportJson(d: SessionDetail) {
-  const cfg = getConfig();
-  return {
-    product: cfg.product,
-    version: cfg.version,
-    generated_at: new Date().toISOString(),
-    session: {
-      session_id: d.session.id,
-      role: d.session.role,
-      experience_level: d.session.experience_level,
-      interview_mode: d.session.interview_mode,
-      response_mode: d.session.response_mode,
-      time_limit_minutes: d.session.time_limit_minutes,
-      started_at: d.session.started_at,
-      completed_at: d.session.completed_at,
-      rubric_version: d.session.rubric_version,
-      consent_to_audio_recording: !!d.session.consent_to_audio_recording,
-      status: d.session.status,
-    },
-    overall: d.original,
-    overall_with_retries: d.latest,
-    category_dimension_averages: d.category_dimension_averages,
-    coaching: d.coaching,
-    questions: d.questions.map((q) => ({
-      question_id: q.question_id,
-      category: q.category,
-      competency: q.competency,
-      question_text: q.question_text,
-      attempts: q.attempts.map((a) => ({
-        attempt_number: a.attempt_number,
-        kind: a.kind,
-        status: a.status,
-        response_text: a.response_text,
-        response_source: a.response_source,
-        followup_text: a.followup_text,
-        followup_response_text: a.followup_response_text,
-        submitted_at: a.submitted_at,
-        evaluation: a.evaluation,
-        comparison: a.comparison,
-      })),
-    })),
-    notes: "Scores are coaching indicators, not predictions or guarantees of hiring.",
-  };
+const INK = "#111111";
+const MUTED = "#5f5e5a";
+const ACCENT = "#2a78d6";
+const TRACK = "#cde2fb";
+const RULE = "#dedcd6";
+const MARGIN = 54;
+
+// The built-in PDF fonts only cover the Windows-1252 character set.
+const WIN_ANSI_EXTRA = new Set("ŒœŠšŸŽžƒˆ˜–—‘’‚“”„†‡•…‰‹›€™");
+function clean(text: string): string {
+  return text
+    .replace(/[→⇒]/g, "->")
+    .replace(/[←]/g, "<-")
+    .replace(/[≥]/g, ">=")
+    .replace(/[≤]/g, "<=")
+    .replace(/[   ]/g, " ")
+    .replace(/[^\x09\x0a\x0d\x20-\x7e\xa0-\xff]/g, (c) => (WIN_ANSI_EXTRA.has(c) ? c : ""));
 }
 
-const meter = (score: number) =>
-  `<span class="meter" role="img" aria-label="${score} out of 100"><span style="width:${Math.max(0, Math.min(100, score))}%"></span></span>`;
+type Doc = InstanceType<typeof PDFDocument>;
 
-function categoryTable(d: SessionDetail, cat: Category): string {
-  const dims = d.category_dimension_averages[cat];
-  if (!dims.length) return "";
-  const avg =
-    cat === "behavioral" ? d.original?.behavioral_average : cat === "technical_knowledge" ? d.original?.technical_knowledge_average : d.original?.technical_scenario_average;
-  return `<section><h2>${e(CATEGORY_LABELS[cat])} breakdown <span class="muted">· average ${avg ?? "–"}</span></h2>
-  <table><thead><tr><th>Dimension</th><th>Weight</th><th>Average</th><th></th></tr></thead><tbody>
-  ${dims.map((x) => `<tr><td>${e(x.label)}</td><td>${x.weight}%</td><td class="num">${x.average}</td><td>${meter(x.average)}</td></tr>`).join("")}
-  </tbody></table></section>`;
-}
+class Writer {
+  constructor(private doc: Doc) {}
 
-function historySection(d: SessionDetail, history: SessionPoint[]): string {
-  const rows = history.filter((h) => h.overall_score !== null).sort((a, b) => a.started_at.localeCompare(b.started_at));
-  const retries = d.questions.flatMap((q) => q.attempts.filter((a) => a.comparison).map((a) => ({ q, a })));
-  return `<section><h2>Retry comparison and session history</h2>
-  ${
-    retries.length
-      ? `<table><thead><tr><th>Question</th><th>Attempt</th><th>Before</th><th>After</th><th>Change</th></tr></thead><tbody>${retries
-          .map(
-            ({ q, a }) =>
-              `<tr><td>Q${q.position} ${e(q.question_id)}</td><td>#${a.attempt_number}</td><td class="num">${a.comparison!.score_before}</td><td class="num">${a.comparison!.score_after}</td><td class="num">${a.comparison!.score_after - a.comparison!.score_before >= 0 ? "+" : ""}${a.comparison!.score_after - a.comparison!.score_before}</td></tr>`,
-          )
-          .join("")}</tbody></table>`
-      : "<p class=muted>No retries yet.</p>"
+  private get width() {
+    return this.doc.page.width - MARGIN * 2;
   }
-  <h3>${e(d.session.role)} · ${e(LEVEL_LABELS[d.session.experience_level])} sessions</h3>
-  <table><thead><tr><th>Date</th><th>Interview type</th><th>Overall</th><th>Readiness</th><th>Rubric</th></tr></thead><tbody>${rows
-    .map(
-      (h) =>
-        `<tr${h.session_id === d.session.id ? ' style="font-weight:600"' : ""}><td>${e(new Date(h.started_at).toLocaleDateString("en-US"))}</td><td>${e(h.mode_label)}</td><td class="num">${h.overall_score}</td><td>${e(h.readiness_band ?? "")}</td><td>v${e(h.rubric_version)}${h.rubric_version !== d.session.rubric_version ? " (non-equivalent)" : ""}</td></tr>`,
-    )
-    .join("")}</tbody></table></section>`;
+
+  /** Starts a new page if fewer than `points` remain. */
+  ensure(points: number) {
+    if (this.doc.y + points > this.doc.page.height - MARGIN) this.doc.addPage();
+  }
+
+  gap(points = 8) {
+    this.doc.y += points;
+  }
+
+  heading(text: string, size = 15) {
+    this.ensure(size * 3);
+    this.gap(size * 0.6);
+    this.doc.font("Helvetica-Bold").fontSize(size).fillColor(INK).text(clean(text), MARGIN, this.doc.y, { width: this.width });
+    this.gap(4);
+  }
+
+  text(text: string, opts: { size?: number; color?: string; bold?: boolean; indent?: number; italic?: boolean } = {}) {
+    const font = opts.bold ? "Helvetica-Bold" : opts.italic ? "Helvetica-Oblique" : "Helvetica";
+    this.doc
+      .font(font)
+      .fontSize(opts.size ?? 10)
+      .fillColor(opts.color ?? INK)
+      .text(clean(text), MARGIN + (opts.indent ?? 0), this.doc.y, { width: this.width - (opts.indent ?? 0), lineGap: 2 });
+  }
+
+  muted(text: string, size = 9) {
+    this.text(text, { size, color: MUTED });
+  }
+
+  label(label: string, value: string) {
+    this.doc.font("Helvetica-Bold").fontSize(10).fillColor(INK).text(clean(`${label}: `), MARGIN, this.doc.y, { continued: true, width: this.width });
+    this.doc.font("Helvetica").text(clean(value), { width: this.width, lineGap: 2 });
+  }
+
+  bullets(items: string[], indent = 10) {
+    for (const item of items) {
+      this.ensure(14);
+      this.doc
+        .font("Helvetica")
+        .fontSize(10)
+        .fillColor(INK)
+        .text(clean(`•  ${item}`), MARGIN + indent, this.doc.y, { width: this.width - indent, lineGap: 2, indent: 0 });
+    }
+  }
+
+  /** A response or quote, set off with a left rule. */
+  quote(text: string) {
+    const x = MARGIN + 10;
+    const top = this.doc.y;
+    this.doc.font("Helvetica").fontSize(10).fillColor(INK);
+    const height = this.doc.heightOfString(clean(text), { width: this.width - 14, lineGap: 2 });
+    if (top + Math.min(height, 120) > this.doc.page.height - MARGIN) this.doc.addPage();
+    const start = this.doc.y;
+    this.doc.text(clean(text), x, start, { width: this.width - 14, lineGap: 2 });
+    const end = this.doc.y;
+    if (end > start) this.doc.save().rect(MARGIN, start, 2.5, end - start).fill(RULE).restore();
+    this.doc.x = MARGIN;
+  }
+
+  /** Label, score bar and value on one line (a "meter"). */
+  meter(label: string, score: number, weight?: number) {
+    this.ensure(18);
+    const y = this.doc.y;
+    const barX = MARGIN + 190;
+    const barW = 200;
+    this.doc.font("Helvetica").fontSize(10).fillColor(INK).text(clean(label), MARGIN, y, { width: 150, lineBreak: false });
+    if (weight !== undefined) this.doc.fillColor(MUTED).fontSize(9).text(`${weight}%`, MARGIN + 152, y + 1, { width: 34, lineBreak: false });
+    this.doc.save().roundedRect(barX, y + 2, barW, 7, 3.5).fill(TRACK);
+    const filled = (Math.max(0, Math.min(100, score)) / 100) * barW;
+    if (filled > 0) this.doc.roundedRect(barX, y + 2, Math.max(filled, 7), 7, 3.5).fill(ACCENT);
+    this.doc.restore();
+    this.doc.font("Helvetica-Bold").fontSize(10).fillColor(INK).text(String(score), barX + barW + 12, y, { width: 40, lineBreak: false });
+    this.doc.x = MARGIN;
+    this.doc.y = y + 16;
+  }
+
+  rule() {
+    this.ensure(14);
+    this.gap(4);
+    this.doc.save().moveTo(MARGIN, this.doc.y).lineTo(this.doc.page.width - MARGIN, this.doc.y).lineWidth(0.6).strokeColor(RULE).stroke().restore();
+    this.gap(8);
+  }
 }
 
-export function reportHtml(d: SessionDetail, history: SessionPoint[] = []): string {
+/** Answer outlines are short markdown: "- **Label:** text" bullets and plain lines. */
+function outlineLines(md: string): { bullet: boolean; text: string }[] {
+  return md
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean)
+    .map((l) => {
+      const m = l.match(/^(?:[-*•]|\d+[.)])\s+(.*)$/);
+      const text = (m ? m[1] : l.replace(/^#+\s*/, "")).replace(/\*\*(.+?)\*\*/g, "$1");
+      return { bullet: !!m, text };
+    });
+}
+
+function evaluationBlock(w: Writer, ev: EvaluationView) {
+  for (const d of ev.dimensions) {
+    w.ensure(50);
+    w.meter(d.label, d.score, d.weight);
+    w.text(`Evidence: ${d.evidence}`, { size: 9, indent: 10 });
+    if (d.gap) w.text(`Gap: ${d.gap}`, { size: 9, indent: 10 });
+    w.text(`Tip: ${d.actionable_tip}`, { size: 9, indent: 10, color: MUTED });
+    w.gap(4);
+  }
+  if (ev.strengths.length) {
+    w.ensure(36);
+    w.text("Strengths", { bold: true });
+    w.bullets(ev.strengths);
+    w.gap(4);
+  }
+  const gaps = [...ev.missing_components, ...ev.improvements];
+  if (gaps.length) {
+    w.ensure(36);
+    w.text(ev.category === "behavioral" ? "Missing STAR components and improvements" : "Knowledge gaps and improvements", { bold: true });
+    w.bullets(gaps);
+    w.gap(4);
+  }
+  w.ensure(50);
+  w.text("How to structure a stronger answer", { bold: true });
+  w.muted("Built only from what you said. [Bracketed] items are details to fill in from your real experience.");
+  for (const line of outlineLines(ev.answer_outline)) {
+    if (line.bullet) w.bullets([line.text]);
+    else w.text(line.text, { indent: 10 });
+  }
+  w.muted(`Weighted score ${ev.weighted_score}/100 · confidence ${ev.confidence}`);
+}
+
+function responseBlock(w: Writer, a: AttemptView) {
+  if (a.status === "skipped") return w.muted("Skipped.", 10);
+  if (a.status === "not_reached") return w.muted("Not reached before the interview ended.", 10);
+  w.quote(a.response_text);
+  if (a.followup_text) {
+    w.gap(4);
+    w.label("Follow-up", a.followup_text);
+    w.quote(a.followup_response_text || "(no follow-up answer)");
+  }
+}
+
+export interface ReportOptions {
+  /** Uncompressed output (for tests that inspect the PDF's text). */
+  compress?: boolean;
+}
+
+export async function reportPdf(d: SessionDetail, history: SessionPoint[] = [], opts: ReportOptions = {}): Promise<Buffer> {
   const cfg = getConfig();
   const s = d.session;
+  const doc = new PDFDocument({
+    size: "LETTER",
+    margin: MARGIN,
+    bufferPages: true,
+    compress: opts.compress ?? true,
+    info: { Title: `${s.role} interview report`, Author: "TreTechPro.ai", Subject: `${cfg.product} ${cfg.version}` },
+  });
+  const chunks: Buffer[] = [];
+  doc.on("data", (c: Buffer) => chunks.push(c));
+  const finished = new Promise<void>((resolve) => doc.on("end", () => resolve()));
+  const w = new Writer(doc);
+  const date = new Date(s.started_at).toLocaleString("en-US", { dateStyle: "long", timeStyle: "short", timeZone: "UTC" });
+
+  // 1. Title and session configuration
+  doc.font("Helvetica-Bold").fontSize(20).fillColor(INK).text(clean(`${s.role} Interview Report`));
+  w.muted(`${cfg.product} ${cfg.version}`, 10);
+  w.gap(6);
+  w.text(`${LEVEL_LABELS[s.experience_level]} · ${s.mode_label} · ${date} UTC`);
+  w.muted(
+    `Answers: ${s.response_mode === "voice" ? "spoken (transcribed)" : "typed"}${s.time_limit_minutes ? ` · time limit ${s.time_limit_minutes} min` : ""} · rubric v${s.rubric_version}`,
+  );
+
+  // 2. Overall score and readiness band
   const o = d.original;
-  const date = new Date(s.started_at).toLocaleString("en-US", { dateStyle: "long", timeStyle: "short" });
-  const questions = d.questions
-    .map((q) => {
-      const attempts = q.attempts
-        .map((a) => {
-          const ev = a.evaluation;
-          const label = a.kind === "interview" ? "Original answer" : `Retry #${a.attempt_number - 1}`;
-          const response =
-            a.status === "skipped" ? "<em>Skipped</em>" : a.status === "not_reached" ? "<em>Not reached</em>" : e(a.response_text).replace(/\n/g, "<br>");
-          const follow = a.followup_text
-            ? `<p class="follow"><strong>Follow-up:</strong> ${e(a.followup_text)}<br><strong>Answer:</strong> ${e(a.followup_response_text || "—")}</p>`
-            : "";
-          const evalHtml = ev
-            ? `<table class="dims"><thead><tr><th>Dimension</th><th>Score</th><th>Evidence</th><th>Gap / tip</th></tr></thead><tbody>
-              ${ev.dimensions
-                .map(
-                  (x) =>
-                    `<tr><td>${e(x.label)} <span class="muted">${x.weight}%</span></td><td class="num">${x.score}</td><td>${e(x.evidence)}</td><td>${x.gap ? e(x.gap) + "<br>" : ""}<span class="muted">${e(x.actionable_tip)}</span></td></tr>`,
-                )
-                .join("")}</tbody></table>
-              <div class="cols"><div><h4>Strengths</h4><ul>${ev.strengths.map((x) => `<li>${e(x)}</li>`).join("") || "<li class=muted>None identified</li>"}</ul></div>
-              <div><h4>Gaps &amp; improvements</h4><ul>${[...ev.missing_components, ...ev.improvements].map((x) => `<li>${e(x)}</li>`).join("")}</ul></div></div>
-              <h4>Suggested answer outline</h4><div class="outline">${outlineToHtml(ev.answer_outline)}</div>
-              <p class="muted small">Confidence: ${ev.confidence} · evaluator: ${e(ev.evaluator)}</p>`
-            : "<p class=muted>Not evaluated yet.</p>";
-          const cmp = a.comparison
-            ? `<div class="cmp"><h4>Change vs attempt ${a.comparison.previous_attempt_number}: ${a.comparison.score_before} → ${a.comparison.score_after} (${a.comparison.score_after - a.comparison.score_before >= 0 ? "+" : ""}${a.comparison.score_after - a.comparison.score_before})</h4>
-              <p>${e(a.comparison.summary)}</p>
-              <p class="small">${a.comparison.deltas.map((x) => `${e(x.label)} ${x.before}→${x.after}`).join(" · ")}</p>
-              <ul>${a.comparison.specific_changes.map((x) => `<li>${e(x)}</li>`).join("")}</ul></div>`
-            : "";
-          return `<div class="attempt"><h3>${label}${ev ? ` — <span class="score">${ev.weighted_score}</span>/100` : ""}</h3><blockquote>${response}</blockquote>${follow}${cmp}${evalHtml}</div>`;
-        })
-        .join("");
-      return `<section class="question"><h2>Q${q.position}. <span class="muted">${e(q.question_id)} · ${e(CATEGORY_LABELS[q.category])} · ${e(q.competency)}</span></h2>
-      <p class="qtext">${e(q.question_text)}</p>${attempts}</section>`;
-    })
-    .join("");
+  w.heading("Overall score and readiness");
+  if (o) {
+    const y = doc.y;
+    doc.font("Helvetica-Bold").fontSize(40).fillColor(INK).text(String(o.overall_score), MARGIN, y, { width: 90 });
+    doc.font("Helvetica").fontSize(9).fillColor(MUTED).text("overall / 100", MARGIN, doc.y, { width: 90 });
+    const after = doc.y;
+    doc.font("Helvetica-Bold").fontSize(14).fillColor(INK).text(clean(o.readiness_band), MARGIN + 110, y + 6, { width: 380 });
+    doc
+      .font("Helvetica")
+      .fontSize(10)
+      .fillColor(MUTED)
+      .text(
+        clean(
+          `Behavioral ${o.behavioral_average ?? "-"} · Technical knowledge ${o.technical_knowledge_average ?? "-"} · Technical scenario ${o.technical_scenario_average ?? "-"}` +
+            (d.latest && d.latest.overall_score !== o.overall_score ? ` · With retries: ${d.latest.overall_score}` : ""),
+        ),
+        MARGIN + 110,
+        doc.y + 2,
+        { width: 380 },
+      );
+    doc.x = MARGIN;
+    doc.y = Math.max(after, doc.y) + 6;
+    w.muted(`${o.notes} Readiness bands: 0-49 foundation building · 50-69 developing · 70-84 proficient · 85-100 strong practice performance.`);
+  } else {
+    w.text("The evaluation is not available yet.");
+  }
 
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Interview Report — ${e(s.role)}</title>
-<style>
-:root{--ink:#0b0b0b;--muted:#52514e;--line:#dedcd6;--accent:#2a78d6;--track:#cde2fb;--bg:#fff;--soft:#f5f4f1}
-body{font:14px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:var(--ink);background:var(--bg);max-width:960px;margin:0 auto;padding:24px 16px}
-h1{font-size:24px;margin:0 0 4px}h2{font-size:17px;margin:28px 0 8px}h3{font-size:15px;margin:16px 0 6px}h4{font-size:13px;margin:12px 0 4px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted)}
-.muted{color:var(--muted);font-weight:400}.small{font-size:12px}.num{font-variant-numeric:tabular-nums;text-align:right}
-table{width:100%;border-collapse:collapse;margin:6px 0}th,td{border-bottom:1px solid var(--line);padding:6px 8px;text-align:left;vertical-align:top}th{font-size:12px;color:var(--muted)}
-.meter{display:inline-block;width:140px;height:8px;border-radius:4px;background:var(--track);overflow:hidden;vertical-align:middle}.meter span{display:block;height:100%;background:var(--accent);border-radius:4px}
-.hero{display:flex;gap:32px;align-items:baseline;flex-wrap:wrap;padding:16px;background:var(--soft);border-radius:8px}.hero .big{font-size:52px;font-weight:600;line-height:1}
-blockquote{margin:6px 0;padding:8px 12px;border-left:3px solid var(--line);background:var(--soft);white-space:normal}
-.attempt{border-top:1px dashed var(--line);margin-top:10px}.cols{display:grid;grid-template-columns:1fr 1fr;gap:16px}.outline{background:var(--soft);padding:4px 12px;border-radius:6px}
-.placeholder{background:#fff3c4;padding:0 2px;border-radius:3px}.cmp{background:#eef5fd;padding:4px 12px;border-radius:6px}.score{color:var(--accent)}
-.qtext{font-weight:500}.toolbar{margin-bottom:16px}.toolbar button{font:inherit;padding:6px 14px;border-radius:6px;border:1px solid var(--line);background:var(--bg);cursor:pointer}
-.question{break-inside:avoid-page}
-@media (max-width:640px){.cols{grid-template-columns:1fr}.meter{width:80px}}
-@media print{.toolbar{display:none}body{padding:0}a{color:inherit}}
-</style></head><body>
-<div class="toolbar"><button onclick="window.print()">Print / Save as PDF</button></div>
-<h1>${e(cfg.product)} ${e(cfg.version)} — Interview Report</h1>
-<p class="muted">${e(s.role)} · ${e(LEVEL_LABELS[s.experience_level])} · ${e(s.mode_label)} · ${e(date)}<br>
-Responses: ${s.response_mode === "voice" ? "voice (transcribed)" : "text"}${s.time_limit_minutes ? ` · time limit ${s.time_limit_minutes} min` : ""} · rubric v${e(s.rubric_version)} · session ${e(s.id)}</p>
+  // 3-5. Category breakdowns
+  for (const cat of ["behavioral", "technical_knowledge", "technical_scenario"] as Category[]) {
+    const dims = d.category_dimension_averages[cat];
+    if (!dims.length) continue;
+    const avg = cat === "behavioral" ? o?.behavioral_average : cat === "technical_knowledge" ? o?.technical_knowledge_average : o?.technical_scenario_average;
+    w.heading(`${CATEGORY_LABELS[cat]} breakdown (average ${avg ?? "-"})`, 13);
+    for (const x of dims) w.meter(x.label, x.average, x.weight);
+  }
 
-<section><h2>Overall score and readiness</h2>
-${
-  o
-    ? `<div class="hero"><div><div class="big">${o.overall_score}</div><div class="muted">overall / 100</div></div><div><strong>${e(o.readiness_band)}</strong><br><span class="muted">Behavioral ${o.behavioral_average ?? "–"} · Technical knowledge ${o.technical_knowledge_average ?? "–"} · Scenario ${o.technical_scenario_average ?? "–"}</span>
-    ${d.latest && d.latest.overall_score !== o.overall_score ? `<br>With retries: <strong>${d.latest.overall_score}</strong>` : ""}</div></div>
-    <p class="muted small">${e(o.notes)} Readiness bands: 0–49 foundation building · 50–69 developing · 70–84 proficient · 85–100 strong practice performance.</p>`
-    : `<p>Evaluation not available (${e(s.status)}).</p>`
-}</section>
-${categoryTable(d, "behavioral")}${categoryTable(d, "technical_knowledge")}${categoryTable(d, "technical_scenario")}
-${
-  d.coaching
-    ? `<section><h2>Top three improvement priorities</h2><ol>${d.coaching.coaching_actions
-        .map((a) => `<li><strong>${e(a.title)}</strong> — ${e(a.detail)}${a.related_question_ids.length ? ` <span class="muted">(${a.related_question_ids.map(e).join(", ")})</span>` : ""}</li>`)
-        .join("")}</ol><p>${e(d.coaching.overall_notes)}</p></section>`
-    : ""
+  // 8. Top three improvement priorities
+  if (d.coaching) {
+    w.heading("Top three improvement priorities");
+    d.coaching.coaching_actions.forEach((a, i) => {
+      w.ensure(40);
+      w.text(`${i + 1}. ${a.title}`, { bold: true });
+      w.text(a.detail, { indent: 14 });
+      if (a.related_question_ids.length) w.text(`Related: ${a.related_question_ids.join(", ")}`, { indent: 14, size: 9, color: MUTED });
+      w.gap(4);
+    });
+    if (d.coaching.overall_notes) w.text(d.coaching.overall_notes, { italic: true });
+  }
+
+  // 6-7. Per question: response, scores, strengths, gaps, suggested outline
+  doc.addPage();
+  w.heading("Questions, answers and feedback", 16);
+  for (const q of d.questions) {
+    w.ensure(90);
+    w.rule();
+    w.muted(`Q${q.position} · ${q.question_id} · ${CATEGORY_LABELS[q.category]} · ${q.competency}`);
+    w.text(q.question_text, { bold: true, size: 11 });
+    for (const a of q.attempts) {
+      w.gap(6);
+      w.ensure(90); // keep the attempt heading with the start of its answer
+      const title = a.kind === "interview" ? "Your original answer" : `Retry #${a.attempt_number - 1}`;
+      w.text(`${title}${a.evaluation ? ` · ${a.evaluation.weighted_score}/100` : ""}`, { bold: true, color: ACCENT });
+      responseBlock(w, a);
+      if (a.comparison) {
+        const c = a.comparison;
+        w.gap(4);
+        w.text(`Change vs attempt ${c.previous_attempt_number}: ${c.score_before} -> ${c.score_after} (${c.score_after - c.score_before >= 0 ? "+" : ""}${c.score_after - c.score_before})`, {
+          bold: true,
+        });
+        w.text(c.summary);
+        w.muted(c.deltas.map((x) => `${x.label} ${x.before} -> ${x.after}`).join(" · "));
+        if (c.specific_changes.length) w.bullets(c.specific_changes);
+      }
+      if (a.evaluation) {
+        w.gap(6);
+        evaluationBlock(w, a.evaluation);
+      }
+    }
+  }
+
+  // 9. Retry comparison and session history
+  w.heading("Retry comparison and session history");
+  const retries = d.questions.flatMap((q) => q.attempts.filter((a) => a.comparison).map((a) => ({ q, a })));
+  if (retries.length) {
+    for (const { q, a } of retries) {
+      const c = a.comparison!;
+      w.text(`Q${q.position} (${q.question_id}) retry #${a.attempt_number - 1}: ${c.score_before} -> ${c.score_after} (${c.score_after - c.score_before >= 0 ? "+" : ""}${c.score_after - c.score_before})`);
+    }
+  } else {
+    w.muted("No retries yet.", 10);
+  }
+  w.gap(6);
+  w.text(`${s.role} · ${LEVEL_LABELS[s.experience_level]} sessions`, { bold: true });
+  const rows = history.filter((h) => h.overall_score !== null).sort((a, b) => a.started_at.localeCompare(b.started_at));
+  for (const h of rows) {
+    const day = new Date(h.started_at).toLocaleDateString("en-US", { timeZone: "UTC" });
+    const mark = h.session_id === s.id ? "  (this interview)" : "";
+    const ver = h.rubric_version !== s.rubric_version ? " · non-equivalent rubric" : "";
+    w.text(`${day} · ${h.mode_label} · ${h.overall_score} · ${h.readiness_band ?? ""}${ver}${mark}`, { size: 9.5, bold: h.session_id === s.id });
+  }
+  if (!rows.length) w.muted("No earlier sessions for this role and level.", 10);
+
+  // Page footers
+  const range = doc.bufferedPageRange();
+  for (let i = 0; i < range.count; i++) {
+    doc.switchToPage(range.start + i);
+    const bottom = doc.page.margins.bottom;
+    doc.page.margins.bottom = 0;
+    doc
+      .font("Helvetica")
+      .fontSize(8)
+      .fillColor(MUTED)
+      .text(clean(`TreTechPro.ai · ${s.role} interview report · Page ${i + 1} of ${range.count}`), MARGIN, doc.page.height - 34, {
+        width: doc.page.width - MARGIN * 2,
+        align: "center",
+        lineBreak: false,
+      });
+    doc.page.margins.bottom = bottom;
+  }
+
+  doc.end();
+  await finished;
+  return Buffer.concat(chunks);
 }
-<section><h2>Questions, responses and feedback</h2></section>
-${questions}
-${historySection(d, history)}
-<p class="muted small">Generated ${e(new Date().toLocaleString("en-US"))}. ${e(cfg.report_spec.privacy)}</p>
-</body></html>`;
+
+export function reportFilename(d: SessionDetail): string {
+  const role = d.session.role.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+  return `interview-report-${role}-${d.session.started_at.slice(0, 10)}.pdf`;
 }

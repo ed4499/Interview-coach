@@ -13,7 +13,7 @@ import {
   submitAnswer,
 } from "@/lib/interview";
 import { getProgress } from "@/lib/progress";
-import { reportHtml, reportJson } from "@/lib/report";
+import { reportFilename, reportPdf } from "@/lib/report";
 import { ScriptedAI, freshEnv } from "./helpers";
 import type Database from "better-sqlite3";
 
@@ -265,23 +265,21 @@ describe("history, progress, reports and deletion", () => {
     expect(p.recommendations.length).toBeGreaterThanOrEqual(3);
   });
 
-  it("renders reports with the stored scores and coaching feedback", async () => {
+  it("renders the PDF report with the stored scores and coaching feedback", async () => {
     const s = createSession(CANDIDATE, { role: "GRC Specialist", experience_level: "mid", interview_mode: "behavioral_only" });
-    await answerAll(s.id, () => "Answer with <script>alert(1)</script> inside");
+    await answerAll(s.id, () => "Answer with <b>markup</b> and a → arrow inside");
     const done = await completeSession(requireSession(s.id, CANDIDATE));
     await retryQuestion(done, { question_id: "13-B01", response_text: "IMPROVED" });
     const d = getSessionDetail(done);
-    const html = reportHtml(d, getProgress(CANDIDATE).sessions);
-    expect(html).toContain(`<div class="big">${d.original!.overall_score}</div>`);
-    expect(html).toContain("Developing");
-    expect(html).toContain("Action 1");
-    expect(html).toContain("Situation");
-    expect(html).toContain("56 → 76");
-    expect(html).not.toContain("<script>alert(1)</script>");
-    expect(html).toContain("&lt;script&gt;");
-    const json = reportJson(d);
-    expect(json.overall!.overall_score).toBe(56);
-    expect(json.questions[0].attempts).toHaveLength(2);
+    const pdf = await reportPdf(d, getProgress(CANDIDATE).sessions, { compress: false });
+    expect(pdf.subarray(0, 5).toString()).toBe("%PDF-");
+    // Uncompressed pdfkit text is written as hex strings inside TJ operators; decode them.
+    const text = [...pdf.toString("latin1").matchAll(/<([0-9a-f]+)>/gi)].map((m) => Buffer.from(m[1], "hex").toString("latin1")).join("");
+    for (const expected of ["GRC Specialist Interview Report", "Developing", "Action 1", "Situation", "56 -> 76", "Top three improvement priorities", "Your original answer", "Retry #1", "How to structure a stronger answer"]) {
+      expect(text, expected).toContain(expected);
+    }
+    expect(text).toContain("Answer with <b>markup</b> and a -> arrow inside");
+    expect(reportFilename(d)).toMatch(/^interview-report-grc-specialist-\d{4}-\d{2}-\d{2}\.pdf$/);
   });
 
   it("deletes a session with its answers, evaluations and recordings", async () => {

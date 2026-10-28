@@ -21,7 +21,7 @@ export default function VoicePicker({ voices, currentId, showReset = false }: { 
       setMessage({ ok: false, text: data.error ?? "The voice was not saved." });
       return;
     }
-    setMessage({ ok: true, text: voiceId ? `Saved. New interviews will use “${name}”.` : "Reset to the default voice (Julia)." });
+    setMessage({ ok: true, text: voiceId ? `Saved. New interviews will use “${name}”.` : "Reset to the default voice (Sophie)." });
     router.refresh();
   }
 
@@ -58,7 +58,7 @@ export default function VoicePicker({ voices, currentId, showReset = false }: { 
       {showReset && (
         <div>
           <button className="btn ghost small" disabled={!!busy} onClick={() => choose(null, "")}>
-            Reset to default voice (Julia)
+            Reset to default voice (Sophie)
           </button>
         </div>
       )}
