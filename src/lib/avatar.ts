@@ -54,22 +54,24 @@ export function pickAmericanVoice(voices: AnamVoice[]): AnamVoice | null {
   return us.find((v) => v.gender === "FEMALE") ?? us[0] ?? null;
 }
 
+export type VoiceSource = "chosen" | "auto-american" | "default";
+
 /**
- * The voice used for new sessions: the configured one, else an automatically chosen
- * American voice from the account's library, else Anam's example voice.
+ * The voice used for new sessions: the configured one, else an American voice from the
+ * account's library (if Anam labels any as US), else Anam's original default (British).
  */
-export async function resolveVoiceId(fetchImpl: typeof fetch = fetch): Promise<{ id: string; auto: boolean }> {
+export async function resolveVoiceId(fetchImpl: typeof fetch = fetch): Promise<{ id: string; source: VoiceSource }> {
   const configured = configuredVoiceId();
-  if (configured) return { id: configured, auto: false };
+  if (configured) return { id: configured, source: "chosen" };
   if (!autoVoice || Date.now() - autoVoice.at > 6 * 60 * 60_000) {
     try {
       autoVoice = { at: Date.now(), id: pickAmericanVoice(await listAnamVoices(fetchImpl))?.id ?? null };
     } catch (err) {
       console.warn("[avatar] could not list voices to pick an American default:", err);
-      return { id: DEFAULT_VOICE_ID, auto: true };
+      return { id: DEFAULT_VOICE_ID, source: "default" };
     }
   }
-  return { id: autoVoice.id ?? DEFAULT_VOICE_ID, auto: true };
+  return autoVoice.id ? { id: autoVoice.id, source: "auto-american" } : { id: DEFAULT_VOICE_ID, source: "default" };
 }
 
 async function anamGet<T>(path: string, fetchImpl: typeof fetch = fetch): Promise<T> {

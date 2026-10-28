@@ -85,11 +85,26 @@ describe("Anam session tokens", () => {
     expect(pickAmericanVoice(voices as never)?.id).toBe("us-f");
     expect(pickAmericanVoice([voices[0], voices[1]] as never)?.id).toBe("us-m");
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ data: voices, meta: { lastPage: 1 } })));
-    expect(await resolveVoiceId(fetchMock as unknown as typeof fetch)).toEqual({ id: "us-f", auto: true });
+    expect(await resolveVoiceId(fetchMock as unknown as typeof fetch)).toEqual({ id: "us-f", source: "auto-american" });
     await resolveVoiceId(fetchMock as unknown as typeof fetch);
     expect(fetchMock).toHaveBeenCalledTimes(1); // cached
     setSetting(VOICE_SETTING, "chosen");
-    expect(await resolveVoiceId(fetchMock as unknown as typeof fetch)).toEqual({ id: "chosen", auto: false });
+    expect(await resolveVoiceId(fetchMock as unknown as typeof fetch)).toEqual({ id: "chosen", source: "chosen" });
+  });
+
+  it("reports the British default honestly when Anam labels no voice as American", async () => {
+    delete process.env.ANAM_VOICE_ID;
+    process.env.ANAM_API_KEY = "k";
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ data: [{ id: "x", displayName: "X", country: null }], meta: { lastPage: 1 } })));
+    expect(await resolveVoiceId(fetchMock as unknown as typeof fetch)).toEqual({ id: "6bfbe25a-979d-40f3-a92b-5394170af54b", source: "default" });
+  });
+
+  it("offers Anam's stock voices even when the API omits them", async () => {
+    const { mergeVoices, STOCK_VOICES } = await import("@/lib/anamVoiceCatalog");
+    const merged = mergeVoices([{ id: "api-1", displayName: "Api", gender: "FEMALE", country: "US", description: null, sampleUrl: null, displayTags: [] }]);
+    expect(merged).toHaveLength(STOCK_VOICES.length + 1);
+    expect(merged.find((v) => v.displayName === "Cara")?.country).toBe("GB");
+    expect(STOCK_VOICES.every((v) => v.sampleUrl?.startsWith("https://lab.anam.ai/voice_samples/"))).toBe(true);
   });
 
   it("loads the avatar's idle loop and caches the signed URL", async () => {

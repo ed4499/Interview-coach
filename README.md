@@ -88,8 +88,10 @@ controls.
   check. If transcription isn't available (e.g. Opera, Brave, Firefox), the candidate is told to switch
   browsers or type; hands-free starts off and recordings are still saved. *Planned:* server-side
   speech-to-text so voice answers work in every browser.
-* **Default voice:** if no voice is chosen, an American voice from the account's library is selected
-  automatically (female first, to match the default avatar).
+* **Default voice:** if no voice is chosen, the app uses a voice Anam labels as American (female first).
+  If none is labeled, it uses Anam's original default "Cara", which is British; the settings page
+  says so and lists Anam's 18 standard voices (`src/lib/anamVoiceCatalog.ts`) with samples to choose
+  by ear.
 * **Fallback:** without a key, or if the video can't connect, the interviewer continues with the
   browser's built-in voice. The interview never stalls.
 * Voice answers can only start recording after the interviewer finishes speaking, so its voice isn't

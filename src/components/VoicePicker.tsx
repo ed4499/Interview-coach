@@ -6,7 +6,7 @@ import type { AnamVoice } from "@/lib/avatar";
 
 const COUNTRY: Record<string, string> = { US: "American", GB: "British", AU: "Australian", CA: "Canadian", IE: "Irish", IN: "Indian", NZ: "New Zealand", ZA: "South African" };
 
-export default function VoicePicker({ voices, currentId }: { voices: AnamVoice[]; currentId: string }) {
+export default function VoicePicker({ voices, currentId, showReset = false }: { voices: AnamVoice[]; currentId: string; showReset?: boolean }) {
   const router = useRouter();
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
@@ -55,11 +55,13 @@ export default function VoicePicker({ voices, currentId }: { voices: AnamVoice[]
           );
         })}
       </div>
-      <div>
-        <button className="btn ghost small" disabled={!!busy} onClick={() => choose(null, "")}>
-          Reset to default voice
-        </button>
-      </div>
+      {showReset && (
+        <div>
+          <button className="btn ghost small" disabled={!!busy} onClick={() => choose(null, "")}>
+            Reset to automatic voice
+          </button>
+        </div>
+      )}
     </div>
   );
 }

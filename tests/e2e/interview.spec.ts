@@ -285,3 +285,19 @@ test("a typed interview can switch to spoken answers mid-interview (with consent
   await expect(page.getByRole("checkbox", { name: /Hands-free/ })).toBeVisible();
   await shot(page, "14-switch-to-voice");
 });
+
+test("interviewer settings: shows the current (British) default and lets you pick another voice by ear", async ({ page }) => {
+  const base = "http://localhost:3101"; // video interviewer enabled (invalid key, so only standard voices load)
+  // Start from the automatic default, whatever an earlier run chose.
+  expect((await page.request.post(`${base}/api/settings/interviewer`, { data: { voiceId: null } })).ok()).toBe(true);
+  await page.goto(`${base}/settings/interviewer`);
+  await expect(page.getByText("Current voice: Cara")).toBeVisible();
+  await expect(page.getByText(/original default voice, which has a British accent/)).toBeVisible();
+  await expect(page.locator(".voice-card audio")).toHaveCount(18);
+  const julia = page.locator(".voice-card", { hasText: "Julia" });
+  await julia.getByRole("button", { name: "Use this voice" }).click();
+  await expect(page.getByText(/New interviews will use “Julia”/)).toBeVisible();
+  await expect(page.getByText("Current voice: Julia")).toBeVisible();
+  await expect(page.getByText(/Chosen on this page/)).toBeVisible();
+  await shot(page, "15-voice-settings");
+});

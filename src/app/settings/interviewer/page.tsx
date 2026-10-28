@@ -1,11 +1,12 @@
-import Link from "next/link";
 import { type AnamVoice, avatarClientConfig, listAnamVoices, resolveVoiceId } from "@/lib/avatar";
+import { mergeVoices } from "@/lib/anamVoiceCatalog";
 import VoicePicker from "@/components/VoicePicker";
 
 export const dynamic = "force-dynamic";
 
-export default async function InterviewerSettings({ searchParams }: { searchParams: Promise<{ show?: string }> }) {
-  const { show } = await searchParams;
+const byName = (a: AnamVoice, b: AnamVoice) => (a.gender ?? "").localeCompare(b.gender ?? "") || a.displayName.localeCompare(b.displayName);
+
+export default async function InterviewerSettings() {
   const cfg = await avatarClientConfig();
   if (cfg.provider !== "anam") {
     return (
@@ -15,38 +16,55 @@ export default async function InterviewerSettings({ searchParams }: { searchPara
       </div>
     );
   }
-  let voices: AnamVoice[] = [];
-  let error: string | null = null;
+  let apiVoices: AnamVoice[] = [];
+  let apiError: string | null = null;
   try {
-    voices = await listAnamVoices();
+    apiVoices = await listAnamVoices();
   } catch (err) {
-    error = err instanceof Error ? err.message : String(err);
+    apiError = err instanceof Error ? err.message : String(err);
   }
-  const { id: current, auto } = await resolveVoiceId();
-  const all = show === "all";
-  const shown = voices
-    .filter((v) => all || v.country === "US" || v.id === current)
-    .sort((a, b) => Number(b.id === current) - Number(a.id === current) || (a.gender ?? "").localeCompare(b.gender ?? "") || a.displayName.localeCompare(b.displayName));
+  const voices = mergeVoices(apiVoices);
+  const { id: current, source } = await resolveVoiceId();
+  const currentVoice = voices.find((v) => v.id === current);
+  const american = voices.filter((v) => v.country === "US").sort(byName);
+  const others = voices.filter((v) => v.country !== "US").sort(byName);
 
   return (
     <div className="stack">
-      <div className="spread">
-        <div>
-          <h1 style={{ marginBottom: 4 }}>Interviewer voice</h1>
-          <p className="muted" style={{ margin: 0 }}>
-            Choose how {cfg.interviewerName} sounds. Play a sample, then select a voice; new interviews use it right away.
-          </p>
-        </div>
-        <Link className="btn secondary small" href={all ? "/settings/interviewer" : "/settings/interviewer?show=all"}>
-          {all ? "Show American voices only" : "Show all accents"}
-        </Link>
+      <div>
+        <h1 style={{ marginBottom: 4 }}>Interviewer voice</h1>
+        <p className="muted" style={{ margin: 0 }}>
+          Choose how {cfg.interviewerName} sounds. Play a sample, then click <strong>Use this voice</strong>; new interviews use it right away.
+        </p>
       </div>
-      {error && <p className="alert error">Could not load voices from Anam: {error}</p>}
-      {!error && auto && (
-        <p className="alert small">No voice has been chosen yet, so an American voice was selected automatically. Pick any voice below to change it.</p>
+
+      <div className="card">
+        <strong>Current voice: {currentVoice?.displayName ?? "Custom voice"}</strong>
+        <div className="muted small">
+          {source === "chosen" && "Chosen on this page (or set in the server environment)."}
+          {source === "auto-american" && "Selected automatically because Anam labels it as an American voice."}
+          {source === "default" && "This is Anam's original default voice, which has a British accent. Pick a voice below to change it."}
+        </div>
+      </div>
+
+      {apiError && <p className="alert small">Anam&apos;s voice list couldn&apos;t be loaded ({apiError}), so only Anam&apos;s standard voices are shown.</p>}
+
+      {american.length > 0 && (
+        <section className="stack">
+          <h2>American voices</h2>
+          <VoicePicker voices={american} currentId={current} />
+        </section>
       )}
-      {!error && <VoicePicker voices={shown} currentId={current} />}
-      {!error && shown.length === 0 && <p className="muted">No voices matched. Try “Show all accents”.</p>}
+
+      <section className="stack">
+        <h2>{american.length > 0 ? "More voices" : "Voices"}</h2>
+        <p className="muted small" style={{ margin: 0 }}>
+          {american.length > 0
+            ? "Other accents and voices Anam hasn't labeled with an accent. Play a sample to hear it."
+            : "Anam doesn't label these voices with an accent, so play the samples and pick the one that sounds American to you."}
+        </p>
+        <VoicePicker voices={others} currentId={current} showReset={source === "chosen"} />
+      </section>
     </div>
   );
 }
