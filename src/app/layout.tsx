@@ -1,11 +1,16 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import "@fontsource/wix-madefor-text/latin-400.css";
+import "@fontsource/wix-madefor-text/latin-600.css";
+import "@fontsource/wix-madefor-display/latin-600.css";
+import "@fontsource/wix-madefor-display/latin-700.css";
 import { isTestMode } from "@/lib/ai";
 import { voiceSettingsEnabled } from "@/lib/avatar";
+import NavLinks from "@/components/NavLinks";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "STAR Interview Coach 3.0 · TreTechPro.ai",
+  title: "AI Interview Coach · TreTechPro.ai",
   description: "Role-specific AI mock interviews with STAR and technical coaching.",
 };
 
@@ -20,25 +25,28 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         )}
         <header className="site-header">
           <div className="container">
-            <Link href="/" className="brand">
-              TreTechPro.ai <small>STAR Interview Coach 3.0</small>
+            <Link href="/" className="brand" aria-label="TreTechPro AI Interview Coach home">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/brand/tretechpro-logo.png" alt="TreTechPro AI Solutions" width={226} height={66} />
+              <small>AI Interview Coach</small>
             </Link>
-            <nav className="nav" aria-label="Main">
-              <Link href="/">Dashboard</Link>
-              <Link href="/interview/new">New interview</Link>
-            </nav>
+            <NavLinks />
           </div>
         </header>
         <main>
           <div className="container">{children}</div>
         </main>
-        {voiceSettingsEnabled() && (
-          <footer className="site-footer">
-            <div className="container">
-              <Link href="/settings/interviewer">Interviewer settings</Link>
-            </div>
-          </footer>
-        )}
+        <footer className="site-footer">
+          <div className="container">
+            © {new Date().getFullYear()} <a href="https://www.tretechpro.ai">TreTechPro</a> · AI Interview Coach
+            {voiceSettingsEnabled() && (
+              <>
+                {" · "}
+                <Link href="/settings/interviewer">Interviewer settings</Link>
+              </>
+            )}
+          </div>
+        </footer>
       </body>
     </html>
   );

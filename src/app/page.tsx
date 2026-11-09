@@ -21,7 +21,10 @@ export default async function Dashboard() {
   if (!p || p.interview_count === 0) {
     return (
       <div className="card empty">
-        <h1>Practice interviews that coach you to a stronger answer</h1>
+        <h1 className="hero-title">
+          <span className="highlight">AI</span> Interview Coach
+        </h1>
+        <p className="hero-sub">Practice interviews that coach you to a stronger answer</p>
         <p className="muted" style={{ maxWidth: 620, margin: "0 auto 20px" }}>
           Choose one of 17 IT, security, AI and data roles. Answer 15 role-specific questions (5 behavioral, 5 technical knowledge, 5 technical
           scenarios) by voice or text, then get STAR and technical scoring, coaching, and the chance to retry any question.

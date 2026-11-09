@@ -16,6 +16,8 @@
   "dependencies": {
     "@anam-ai/js-sdk": "^4.29.1",
     "@anthropic-ai/sdk": "^0.135.0",
+    "@fontsource/wix-madefor-display": "^5.3.0",
+    "@fontsource/wix-madefor-text": "^5.3.0",
     "better-sqlite3": "^13.0.3",
     "next": "^16.4.2",
     "papaparse": "^5.7.0",
