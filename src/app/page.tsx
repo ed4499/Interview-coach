@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { getCandidateId } from "@/lib/candidate";
+import { authEnabled } from "@/lib/auth";
+import { getCandidateId, getCurrentUser } from "@/lib/candidate";
 import { LEVEL_LABELS, dimensionLabel } from "@/lib/config";
 import { getProgress } from "@/lib/progress";
 import DeleteSessionButton from "@/components/DeleteSessionButton";
@@ -17,6 +18,7 @@ const STATUS: Record<string, string> = {
 export default async function Dashboard() {
   const candidate = await getCandidateId();
   const p = candidate ? getProgress(candidate) : null;
+  const offerSignIn = authEnabled() && !(await getCurrentUser());
 
   if (!p || p.interview_count === 0) {
     return (
@@ -32,6 +34,11 @@ export default async function Dashboard() {
         <Link href="/interview/new" className="btn">
           Start your first mock interview
         </Link>
+        {offerSignIn && (
+          <p className="small muted" style={{ marginTop: 18, marginBottom: 0 }}>
+            Already practiced on another device? <Link href="/signin">Sign in</Link> to see your history.
+          </p>
+        )}
       </div>
     );
   }
@@ -48,6 +55,16 @@ export default async function Dashboard() {
           New mock interview
         </Link>
       </div>
+      {offerSignIn && (
+        <div className="alert spread">
+          <span>
+            Your interviews are saved in this browser only. <strong>Sign in with your email</strong> to keep them, and your reports, on any device.
+          </span>
+          <Link className="btn secondary small" href="/signin">
+            Sign in
+          </Link>
+        </div>
+      )}
 
       <div className="grid grid-4">
         <div className="card">

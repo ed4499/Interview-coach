@@ -7,6 +7,9 @@ import "@fontsource/wix-madefor-display/latin-700.css";
 import { isTestMode } from "@/lib/ai";
 import { voiceSettingsEnabled } from "@/lib/avatar";
 import NavLinks from "@/components/NavLinks";
+import AccountMenu from "@/components/AccountMenu";
+import { authEnabled } from "@/lib/auth";
+import { getCurrentUser } from "@/lib/candidate";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -14,7 +17,8 @@ export const metadata: Metadata = {
   description: "Role-specific AI mock interviews with STAR and technical coaching.",
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  const user = authEnabled() ? await getCurrentUser() : null;
   return (
     <html lang="en">
       <body>
@@ -30,7 +34,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               <img src="/brand/tretechpro-logo.png" alt="TreTechPro AI Solutions" width={226} height={66} />
               <small>AI Interview Coach</small>
             </Link>
-            <NavLinks />
+            <div className="header-right">
+              <NavLinks />
+              {authEnabled() && <AccountMenu email={user?.email ?? null} />}
+            </div>
           </div>
         </header>
         <main>

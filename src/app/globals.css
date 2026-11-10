@@ -226,3 +226,11 @@ details.q .body { padding: 0 18px 18px; }
   .brand small { display: none; }
   .nav a { padding: 6px 10px; font-size: 0.85rem; }
 }
+
+.header-right { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; justify-content: flex-end; }
+.account { display: inline-flex; align-items: center; gap: 10px; }
+.account-email { color: var(--ink-2); font-size: 0.85rem; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (min-width: 1000px) { .header-right { flex-wrap: nowrap; } .brand small { white-space: nowrap; } }
+.account-link { font: inherit; font-size: 0.95rem; color: var(--cyan-soft); background: none; border: 0; padding: 4px 0; cursor: pointer; text-decoration: none; }
+.account-link:hover { text-decoration: underline; }
+@media (max-width: 760px) { .header-right { justify-content: center; gap: 10px; } .account-email { max-width: 160px; } }

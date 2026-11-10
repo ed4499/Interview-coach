@@ -304,3 +304,49 @@ test("interviewer settings (when enabled): shows the default voice (Sophie) and 
   await expect(page.getByText("Current voice: Sophie")).toBeVisible();
   await shot(page, "15-voice-settings");
 });
+
+test("optional email-code sign-in keeps history across devices; sign-out hides it", async ({ page, browser }) => {
+  const email = `cand${Date.now()}@example.com`;
+  const signIn = async (p: import("@playwright/test").Page) => {
+    await p.getByRole("link", { name: "Sign in" }).first().click();
+    await p.locator("#email").fill(email);
+    await p.getByRole("button", { name: "Email me a code" }).click();
+    await expect(p.getByText(/We sent a 6-digit code/)).toBeVisible();
+    const mail = await (await p.request.get(`/api/dev/outbox?to=${encodeURIComponent(email)}`)).json();
+    const code = mail.email.text.match(/\b(\d{6})\b/)[1];
+    await p.locator("#code").fill(code);
+    await p.getByRole("button", { name: "Sign in" }).click();
+    await expect(p.locator(".account-email")).toHaveText(email);
+  };
+
+  // Anonymous visitor starts an interview, then signs in: the interview moves into the account.
+  await page.goto("/interview/new");
+  await page.selectOption("#role", "Data Analyst");
+  await page.getByText("Entry-Level").click();
+  await page.getByText("Behavioral STAR (5 questions)").click();
+  await page.getByText("Type my answers").click();
+  await page.getByRole("button", { name: "Start interview" }).click();
+  await page.getByRole("button", { name: "Join interview" }).click();
+  await expect(page.getByText("1 of 5")).toBeVisible();
+  await page.goto("/");
+  await expect(page.getByText(/saved in this browser only/)).toBeVisible();
+  await shot(page, "16-signin-prompt");
+  await signIn(page);
+  await page.goto("/");
+  await expect(page.getByText(/saved in this browser only/)).toHaveCount(0);
+  await expect(page.getByRole("cell", { name: /Data Analyst/ })).toBeVisible();
+
+  // Signing out hides the history on this device.
+  await page.getByRole("button", { name: "Sign out" }).click();
+  await expect(page.getByRole("link", { name: "Start your first mock interview" })).toBeVisible();
+
+  // A different device (fresh browser) sees the same history after signing in.
+  const other = await browser.newContext();
+  const page2 = await other.newPage();
+  await page2.goto("/");
+  await signIn(page2);
+  await page2.goto("/");
+  await expect(page2.getByRole("cell", { name: /Data Analyst/ })).toBeVisible();
+  await shot(page2, "17-signed-in");
+  await other.close();
+});

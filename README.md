@@ -100,6 +100,23 @@ Code: `src/lib/avatar.ts` (config + session tokens), `src/app/api/sessions/[id]/
 `src/components/avatar/drivers.ts` (provider-neutral driver interface: Anam, browser voice, test),
 `src/lib/interviewerScript.ts` (neutral spoken transitions), `src/components/InterviewRunner.tsx`.
 
+## Optional sign-in (email codes)
+
+Candidates can use the coach anonymously; history is kept per browser. Signing in (header **Sign in**)
+keeps history and reports on any device: the candidate enters an email address, receives a 6-digit
+code, and enters it. No passwords are stored.
+
+* Codes are salted hashes, expire after 10 minutes, allow 5 attempts, and only the newest is valid.
+  Requests are rate-limited (one pending code per minute, 5 per hour per address, 20 per hour per client).
+* On sign-in, the browser's anonymous interviews (and recordings) move into the account. Sign-out
+  ends the session and gives the browser a fresh anonymous identity, so the next person sees nothing.
+* Sessions last 90 days (httpOnly cookie; only a hash of the token is stored).
+* Email is sent through [Resend](https://resend.com): set `RESEND_API_KEY` and `EMAIL_FROM` (a
+  sender on a domain verified in Resend). Until a key is set, sign-in is hidden. In test mode
+  emails are captured in the `dev_outbox` table instead (`/api/dev/outbox`, test mode only).
+* Code: `src/lib/auth.ts`, `src/lib/email.ts`, `src/lib/candidate.ts`, `src/app/signin`,
+  `src/app/api/auth/*`.
+
 ## How it works
 
 ```
